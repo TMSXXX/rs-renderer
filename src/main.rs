@@ -129,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let angle = i as f32 * 2. * PI / 30.;
         let yaw_deg = 15. * angle.sin(); // sin函数让角度在-30~30度间变化
         let yaw_rad = cgmath::Rad(yaw_deg.to_radians());
-        renderer.camera.set_rotation(yaw_rad-Rad(PI / 8.), Rad(0.), Rad(0.)); // 设置摄像机偏航角
+        renderer.camera.set_rotation(yaw_rad, Rad(0.), Rad(0.)); // 设置摄像机偏航角
 
         // 清空帧缓冲
         renderer.framebuffer.clear(BLUE);
@@ -151,8 +151,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             * Mat4::from_scale(0.6);  // 缩放模型
         renderer.render_colored_triangles(&mut model_triangles, &model_transform, None);
 
-        let model_transform = Mat4::from_translation(Vec3::new(13.0, 0., -15.0))  // 平移到相机前方
-            * Mat4::from_angle_y(cgmath::Rad(-angle)) * Mat4::from_scale(1.);  // 绕Y轴旋转
+        let model_transform = Mat4::from_translation(Vec3::new(0.2, -0.6, -30.0))  // 平移到相机前方
+            * Mat4::from_angle_y(cgmath::Rad(-angle)) * Mat4::from_scale(0.6);  // 绕Y轴旋转
         renderer.render_colored_triangles(&mut model_triangles2, &model_transform, Some(&tex_idx));
 
         //renderer.framebuffer.save_depth_as_image(&format!("depth_{:03}.png", i))?;
@@ -163,6 +163,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ssaa(2)
             .save_to_image(&format!("./src/output/output_{:03}.png", i))?;
     }
-
     Ok(())
 }

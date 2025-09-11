@@ -36,6 +36,7 @@ impl FrameBuffer {
         let new_width = self.width / factor;
         let new_height = self.height / factor;
         let mut new_data = vec![0; new_width * new_height];
+        let mut new_depth = vec![f32::INFINITY; new_width * new_height];
 
         // 遍历缩小后的每个像素
         for y in 0..new_height {
@@ -75,6 +76,8 @@ impl FrameBuffer {
                     | (avg_g as u32) << 8
                     | avg_b as u32;
                 new_data[y * new_width + x] = new_color;
+
+                new_depth[y * new_width + x] = self.depth[y * factor * self.width + x * factor];
             }
         }
 
@@ -82,7 +85,7 @@ impl FrameBuffer {
             width: new_width,
             height: new_height,
             data: new_data,
-            depth: vec![0.0; new_width * new_height], // 深度缓冲可简化处理
+            depth: new_depth,
         }
     }
 
