@@ -1,3 +1,4 @@
+use crate::texture::Texture;
 use crate::vertex::{ColoredVertex, RasterPoint, Triangle};
 use crate::{camera, framebuffer, rasterizer};
 use camera::Camera;
@@ -26,14 +27,14 @@ impl Default for Light {
             direction: Vec3::new(-1.0, -1.0, -1.0).normalize(),
             color: Vec3::new(1.0, 1.0, 1.0),
             intensity: 1.0,
-            ambient_strength: 0.1,                   // 默认环境光强度
-            ambient_color: Vec3::new(1.0, 1.0, 0.5), // 白色环境光
+            ambient_strength: 0.5,                   // 默认环境光强度
+            ambient_color: Vec3::new(1.0, 1.0, 1.0), // 白色环境光
         }
     }
 }
 
 pub struct Renderer {
-    camera: Camera,
+    pub(crate) camera: Camera,
     pub(crate) framebuffer: FrameBuffer,
     viewport: Viewport,
     light: Light,
@@ -232,11 +233,12 @@ impl Renderer {
         model: &Mat4<f32>,
     ) -> [RasterPoint; 3] {
         let normal_matrix = model.invert().unwrap().transpose();
+        let view_matrix = self.camera.get_view_matrix();
 
         vertices.map(|v| {
             // 变换 3D 位置到裁剪空间
             let mut pos = v.pos.extend(1.0);
-            pos = *self.camera.get_frustum().get_mat() * *model * pos;
+            pos = *self.camera.get_frustum().get_mat() * view_matrix * *model * pos;
             pos /= pos.w; // 透视除法
 
             // 变换法线（使用法线矩阵）
@@ -254,6 +256,7 @@ impl Renderer {
                 color: v.color, // 颜色保持不变，后续插值使用
                 z: pos.z,       // 深度值（用于深度缓冲）
                 normal: normal, // 法线保持不变，后续光照计算使用
+                uv: v.uv,
             }
         })
     }
@@ -286,7 +289,11 @@ impl Renderer {
         }
     }
 
-    pub fn rasterize_colored_triangle(&mut self, points: &[RasterPoint; 3]) {
+    pub fn rasterize_colored_triangle(
+        &mut self,
+        points: &[RasterPoint; 3],
+        texture: Option<&Texture>,
+    ) {
         let (min_x, min_y, max_x, max_y) =
             rasterizer::get_box(&[points[0].pos, points[1].pos, points[2].pos]);
         let (min_x, min_y) = (min_x.max(0), min_y.max(0));
@@ -309,9 +316,15 @@ impl Renderer {
                     );
                     // 插值
                     let bary = bary.unwrap_or((0.0, 0.0, 0.0));
-                    let interpolated_color = rasterizer::interpolate_color(points, bary);
+                    let mut interpolated_color = rasterizer::interpolate_color(points, bary);
                     let interpolated_depth = rasterizer::interpolate_depth(points, bary);
                     let interpolated_normal = rasterizer::interpolate_normal(points, bary);
+                    let interpolated_uv = rasterizer::interpolate_uv(points, bary);
+
+                    // 纹理颜色采样
+                    if let Some(tex) = texture {
+                        interpolated_color = tex.sample(interpolated_uv);
+                    }
 
                     // 环境光分量
                     let ambient = self.light.ambient_color * self.light.ambient_strength;
@@ -322,7 +335,10 @@ impl Renderer {
                     let diffuse = self.light.color * self.light.intensity * diff;
 
                     // 合并光照
-                    let final_color = interpolated_color.mul_element_wise(ambient + diffuse);
+                    let mut final_color = interpolated_color.mul_element_wise(ambient + diffuse);
+                    final_color.x = final_color.x.clamp(0.0, 1.0);
+                    final_color.y = final_color.y.clamp(0.0, 1.0);
+                    final_color.z = final_color.z.clamp(0.0, 1.0);
                     //let final_color = (interpolated_normal + Vec3::new(1.0, 1.0, 1.0)) * 0.5;
 
                     // 转换为 u32 颜色格式（0~255 范围）
@@ -339,13 +355,18 @@ impl Renderer {
     }
 
     // 绘制多个带颜色插值的三角形
-    pub fn render_colored_triangles(&mut self, triangles: &mut Vec<Triangle>, model: &Mat4<f32>) {
+    pub fn render_colored_triangles(
+        &mut self,
+        triangles: &mut Vec<Triangle>,
+        model: &Mat4<f32>,
+        texture: Option<&Texture>,
+    ) {
         for triangle in triangles {
             if triangle.is_backface_world_space(Vec3::zero(), model) {
                 continue; // 剔除背面
             }
             let raster_points = self.transform_colored_vertices(&triangle.vertices, model);
-            self.rasterize_colored_triangle(&raster_points);
+            self.rasterize_colored_triangle(&raster_points, texture);
         }
     }
 }

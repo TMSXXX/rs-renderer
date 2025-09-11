@@ -4,9 +4,10 @@ mod model;
 mod rasterizer;
 mod renderer;
 mod vertex;
-use std::f32::consts::PI;
+mod texture;
+use std::{f32::consts::PI};
 
-use cgmath::{Matrix4 as Mat4, SquareMatrix, Vector3 as Vec3};
+use cgmath::{Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3};
 
 use crate::vertex::{ColoredVertex, Triangle};
 
@@ -16,7 +17,7 @@ const BLACK: u32 = 0xFF000000; // A=FF, R=00, G=00, B=00
 const WHITE: u32 = 0xFFFFFFFF;
 const RED: u32 = 0xFFFF0000;
 const GREEN: u32 = 0xFF00FF00;
-const BLUE: u32 = 0xFF0000FF;
+const BLUE: u32 = 0xFFA3A3F0;
 const PURPLE: u32 = 0xFFFF00FF;
 
 #[rustfmt::skip]
@@ -47,8 +48,9 @@ fn rotate_around_self(angle: f32, center: Vec3<f32>) -> Mat4<f32> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut model_triangles = model::load_obj(std::path::Path::new("../models/bunny_10k.obj"))?;
-    let mut model_triangles2 = model::load_obj(std::path::Path::new("../models/miku_blender.obj"))?;
+    let mut model_triangles = model::load_obj(std::path::Path::new("./models/bunny_10k.obj"))?;
+    let mut model_triangles2 = model::load_obj(std::path::Path::new("./models/miku_race.obj"))?;
+    let tex_idx = texture::Texture::from_file(std::path::Path::new("./models/miku_race.jpg"))?;
     println!("模型三角形数量：{}", model_triangles.len());
     if !model_triangles.is_empty() {
         println!(
@@ -68,17 +70,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ColoredVertex {
             pos: Vec3::new(-1.3, -0.3, -3.0),
             color: Vec3::new(1.0, 0.0, 0.0), // 红
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
         ColoredVertex {
             pos: Vec3::new(-0.7, -0.3, -3.0),
             color: Vec3::new(0.0, 1.0, 0.0), // 绿
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
         ColoredVertex {
             pos: Vec3::new(-1.0, 0.3, -3.0),
             color: Vec3::new(0.0, 0.0, 1.0), // 蓝
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
     );
 
@@ -86,28 +91,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ColoredVertex {
             pos: Vec3::new(-0.3, -0.4, -4.0),
             color: Vec3::new(1.0, 1.0, 1.0), // 红
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
         ColoredVertex {
             pos: Vec3::new(0., -0.5, -4.0),
             color: Vec3::new(0.0, 0.5, 0.2), // 绿
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
         ColoredVertex {
             pos: Vec3::new(-0.3, 0.2, -2.0),
             color: Vec3::new(0.0, 0.0, 0.5), // 蓝
-            normal: Vec3::new(0.0, 0.0, 1.0)
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            uv: Vec2::new(0., 0.),
         },
     );
-    let width = 3200;
-    let height = 2400;
-    let camera = camera::Camera::new(
+    let width = 1600;
+    let height = 1200;
+    let mut camera = camera::Camera::new(
         1.0,
         5.0,
         WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
         (45. as f32).to_radians(),
     );
 
+    camera.set_position(Vec3::new(0.2, 0., 2.));
     let mut renderer = renderer::Renderer::new(camera, width, height);
     renderer.framebuffer.clear(BLACK);
 
@@ -118,9 +127,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("渲染第 {} 帧", i);
         // 生成60帧动画
         let angle = i as f32 * 2. * PI / 30.;
+        let yaw_deg = 15. * angle.sin(); // sin函数让角度在-30~30度间变化
+        let yaw_rad = cgmath::Rad(yaw_deg.to_radians());
+        renderer.camera.set_rotation(yaw_rad-Rad(PI / 8.), Rad(0.), Rad(0.)); // 设置摄像机偏航角
 
         // 清空帧缓冲
-        renderer.framebuffer.clear(BLACK);
+        renderer.framebuffer.clear(BLUE);
 
         // 创建旋转矩阵
         let model = rotate_around_self(angle, center);
@@ -128,26 +140,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 绘制旋转后的三角形
         let raster_points = renderer.transform_colored_vertices(&colored_vertices.vertices, &model);
         // 光栅化带颜色插值的三角形
-        renderer.rasterize_colored_triangle(&raster_points);
+        renderer.rasterize_colored_triangle(&raster_points, None);
 
         let raster_points2 =
             renderer.transform_colored_vertices(&colored_vertices_2.vertices, &Mat4::identity());
-        renderer.rasterize_colored_triangle(&raster_points2);
+        renderer.rasterize_colored_triangle(&raster_points2, None);
 
         let model_transform = Mat4::from_translation(Vec3::new(-0.2, 0.0, -3.0))  // 平移到相机前方
             * Mat4::from_angle_y(cgmath::Rad(angle))  // 绕Y轴旋转
             * Mat4::from_scale(0.6);  // 缩放模型
-        renderer.render_colored_triangles(&mut model_triangles, &model_transform);
+        renderer.render_colored_triangles(&mut model_triangles, &model_transform, None);
 
-        let model_transform = Mat4::from_translation(Vec3::new(1.0, -1., -3.0))  // 平移到相机前方
-            * Mat4::from_angle_y(cgmath::Rad(-angle));  // 绕Y轴旋转
-        renderer.render_colored_triangles(&mut model_triangles2, &model_transform);
+        let model_transform = Mat4::from_translation(Vec3::new(13.0, 0., -15.0))  // 平移到相机前方
+            * Mat4::from_angle_y(cgmath::Rad(-angle)) * Mat4::from_scale(1.);  // 绕Y轴旋转
+        renderer.render_colored_triangles(&mut model_triangles2, &model_transform, Some(&tex_idx));
+
+        //renderer.framebuffer.save_depth_as_image(&format!("depth_{:03}.png", i))?;
 
         // 保存每一帧为图片
         renderer
             .framebuffer
             .ssaa(2)
-            .save_to_image(&format!("output_{:03}.png", i))?;
+            .save_to_image(&format!("./src/output/output_{:03}.png", i))?;
     }
 
     Ok(())

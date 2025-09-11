@@ -21,7 +21,7 @@ pub fn get_barycentric_coords(vertices: &[Vec2<f32>; 3], p: &Vec2<f32>) -> Optio
     let w = (d00 * d21 - d01 * d20) / denom;
     let u = 1.0 - v - w;
 
-    Some((u, v, w))
+    Some((w, v, u)) // 之前的顺序记反了，插值的走向不对
 }
 
 pub fn interpolate_depth(
@@ -31,6 +31,14 @@ pub fn interpolate_depth(
     let (u, v, w) = bary;
     // 深度 = u*v0_depth + v*v1_depth + w*v2_depth
     points[0].z * w + points[1].z * v + points[2].z * u
+}
+
+pub fn interpolate_uv(
+    points: &[RasterPoint; 3],
+    bary: (f32, f32, f32),
+) -> Vec2<f32> {
+    let (u, v, w) = bary;
+    points[0].uv * w + points[1].uv * v + points[2].uv * u
 }
 
 pub fn interpolate_color(

@@ -6,8 +6,28 @@ pub struct ColoredVertex {
     pub pos: Vec3<f32>,
     pub color: Vec3<f32>,
     pub normal: Vec3<f32>,
+    pub uv: Vec2<f32>,
 }
-
+impl Default for ColoredVertex {
+    fn default() -> Self {
+        ColoredVertex {
+            pos: Vec3::new(0.0, 0.0, 0.0),
+            color: Vec3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 1.0, 0.0),
+            uv: Vec2::new(0., 0.),
+        }
+    }
+}
+impl ColoredVertex {
+    pub fn zero() -> Self {
+        ColoredVertex {
+            pos: Vec3::zero(),
+            color: Vec3::zero(),
+            normal: Vec3::zero(),
+            uv: Vec2::zero(),
+        }
+    }
+}
 /// 光栅化阶段的 2D 点（带颜色和深度）
 #[derive(Debug, Clone, Copy)]
 pub struct RasterPoint {
@@ -15,6 +35,7 @@ pub struct RasterPoint {
     pub color: Vec3<f32>,
     pub normal: Vec3<f32>,
     pub z: f32,
+    pub uv: Vec2<f32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -65,21 +86,4 @@ impl Triangle {
     }
 }
 
-impl Default for ColoredVertex {
-    fn default() -> Self {
-        ColoredVertex {
-            pos: Vec3::new(0.0, 0.0, 0.0),
-            color: Vec3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 1.0, 0.0),
-        }
-    }
-}
-impl ColoredVertex {
-    pub fn zero() -> Self {
-        ColoredVertex {
-            pos: Vec3::zero(),
-            color: Vec3::zero(),
-            normal: Vec3::zero(),
-        }
-    }
-}
+
