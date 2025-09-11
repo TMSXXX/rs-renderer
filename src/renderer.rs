@@ -1,7 +1,7 @@
 use crate::vertex::{ColoredVertex, RasterPoint, Triangle};
 use crate::{camera, framebuffer, rasterizer};
 use camera::Camera;
-use cgmath::Matrix4 as Mat4;
+use cgmath::{ElementWise, InnerSpace, Matrix, Matrix3, Matrix4 as Mat4, SquareMatrix, Zero};
 use cgmath::{Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4};
 use framebuffer::FrameBuffer;
 
@@ -12,10 +12,31 @@ struct Viewport {
     h: i32,
 }
 
+pub struct Light {
+    pub direction: Vec3<f32>,
+    pub color: Vec3<f32>,
+    pub intensity: f32,
+    pub ambient_strength: f32,
+    pub ambient_color: Vec3<f32>,
+}
+
+impl Default for Light {
+    fn default() -> Self {
+        Self {
+            direction: Vec3::new(-1.0, -1.0, -1.0).normalize(),
+            color: Vec3::new(1.0, 1.0, 1.0),
+            intensity: 1.0,
+            ambient_strength: 0.1,                   // 默认环境光强度
+            ambient_color: Vec3::new(1.0, 1.0, 0.5), // 白色环境光
+        }
+    }
+}
+
 pub struct Renderer {
     camera: Camera,
     pub(crate) framebuffer: FrameBuffer,
     viewport: Viewport,
+    light: Light,
 }
 
 impl Renderer {
@@ -30,6 +51,7 @@ impl Renderer {
                 w: w as i32,
                 h: h as i32,
             },
+            light: Light::default(),
         }
     }
     // Unclipped lines, unsafe
@@ -48,7 +70,8 @@ impl Renderer {
 
         loop {
             if x0 >= 0 && y0 >= 0 {
-                self.framebuffer.put_pixel(x0 as usize, y0 as usize, color, 0.0);
+                self.framebuffer
+                    .put_pixel(x0 as usize, y0 as usize, color, 0.0);
             }
 
             if x0 == x1 && y0 == y1 {
@@ -208,11 +231,18 @@ impl Renderer {
         vertices: &[ColoredVertex; 3],
         model: &Mat4<f32>,
     ) -> [RasterPoint; 3] {
+        let normal_matrix = model.invert().unwrap().transpose();
+
         vertices.map(|v| {
             // 变换 3D 位置到裁剪空间
             let mut pos = v.pos.extend(1.0);
             pos = *self.camera.get_frustum().get_mat() * *model * pos;
             pos /= pos.w; // 透视除法
+
+            // 变换法线（使用法线矩阵）
+            let mut normal = v.normal.extend(0.0);
+            normal = normal_matrix * normal;
+            let normal = Vec3::new(normal.x, normal.y, normal.z).normalize();
 
             // 转换到屏幕空间
             let screen_x = (pos.x + 1.0) * 0.5 * self.viewport.w as f32 + self.viewport.x as f32;
@@ -223,6 +253,7 @@ impl Renderer {
                 pos: Vec2::new(screen_x, screen_y),
                 color: v.color, // 颜色保持不变，后续插值使用
                 z: pos.z,       // 深度值（用于深度缓冲）
+                normal: normal, // 法线保持不变，后续光照计算使用
             }
         })
     }
@@ -276,29 +307,43 @@ impl Renderer {
                         &[points[0].pos, points[1].pos, points[2].pos],
                         &p,
                     );
-                    // 插值颜色
-                    let interpolated_color = rasterizer::interpolate_color(points, bary.unwrap());
-                    let interpolated_depth = rasterizer::interpolate_depth(points, bary.unwrap());
+                    // 插值
+                    let bary = bary.unwrap_or((0.0, 0.0, 0.0));
+                    let interpolated_color = rasterizer::interpolate_color(points, bary);
+                    let interpolated_depth = rasterizer::interpolate_depth(points, bary);
+                    let interpolated_normal = rasterizer::interpolate_normal(points, bary);
+
+                    // 环境光分量
+                    let ambient = self.light.ambient_color * self.light.ambient_strength;
+
+                    // 漫反射分量
+                    let light_dir = self.light.direction.normalize();
+                    let diff = interpolated_normal.dot(-light_dir).max(0.0);
+                    let diffuse = self.light.color * self.light.intensity * diff;
+
+                    // 合并光照
+                    let final_color = interpolated_color.mul_element_wise(ambient + diffuse);
+                    //let final_color = (interpolated_normal + Vec3::new(1.0, 1.0, 1.0)) * 0.5;
+
                     // 转换为 u32 颜色格式（0~255 范围）
-                    let color = ((interpolated_color.x * 255.0) as u32) << 16
-                        | ((interpolated_color.y * 255.0) as u32) << 8
-                        | ((interpolated_color.z * 255.0) as u32);
+                    let color = ((final_color.x * 255.0) as u32) << 16
+                        | ((final_color.y * 255.0) as u32) << 8
+                        | ((final_color.z * 255.0) as u32);
                     let color = 0xFF000000 | color; // 不透明 alpha 通道
                     // 绘制像素（如果后续有深度缓冲，这里需要加深度测试）
-                    self.framebuffer.put_pixel(
-                        x as usize,
-                        y as usize,
-                        color,
-                        interpolated_depth,
-                    );
+                    self.framebuffer
+                        .put_pixel(x as usize, y as usize, color, interpolated_depth);
                 }
             }
         }
     }
 
     // 绘制多个带颜色插值的三角形
-    pub fn render_colored_triangles(&mut self, triangles: &Vec<Triangle>, model: &Mat4<f32>) {
+    pub fn render_colored_triangles(&mut self, triangles: &mut Vec<Triangle>, model: &Mat4<f32>) {
         for triangle in triangles {
+            if triangle.is_backface_world_space(Vec3::zero(), model) {
+                continue; // 剔除背面
+            }
             let raster_points = self.transform_colored_vertices(&triangle.vertices, model);
             self.rasterize_colored_triangle(&raster_points);
         }

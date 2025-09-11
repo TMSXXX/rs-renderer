@@ -1,10 +1,7 @@
 use crate::vertex::{ColoredVertex, RasterPoint};
-use cgmath::{Matrix4 as Mat4, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, dot};
+use cgmath::{InnerSpace, Matrix4 as Mat4, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, dot};
 
-pub fn get_barycentric_coords(
-    vertices: &[Vec2<f32>; 3],
-    p: &Vec2<f32>,
-) -> Option<(f32, f32, f32)> {
+pub fn get_barycentric_coords(vertices: &[Vec2<f32>; 3], p: &Vec2<f32>) -> Option<(f32, f32, f32)> {
     let v0 = vertices[1] - vertices[0];
     let v1 = vertices[2] - vertices[0];
     let v2 = *p - vertices[0];
@@ -28,8 +25,8 @@ pub fn get_barycentric_coords(
 }
 
 pub fn interpolate_depth(
-    points: &[RasterPoint; 3],  // 带颜色的三角形三个顶点（屏幕空间）
-    bary: (f32, f32, f32)       // 重心坐标 (u, v, w)
+    points: &[RasterPoint; 3], // 带颜色的三角形三个顶点（屏幕空间）
+    bary: (f32, f32, f32),     // 重心坐标 (u, v, w)
 ) -> f32 {
     let (u, v, w) = bary;
     // 深度 = u*v0_depth + v*v1_depth + w*v2_depth
@@ -37,14 +34,19 @@ pub fn interpolate_depth(
 }
 
 pub fn interpolate_color(
-    points: &[RasterPoint; 3],  // 带颜色的三角形三个顶点（屏幕空间）
-    bary: (f32, f32, f32)       // 重心坐标 (u, v, w)
+    points: &[RasterPoint; 3], // 带颜色的三角形三个顶点（屏幕空间）
+    bary: (f32, f32, f32),     // 重心坐标 (u, v, w)
 ) -> Vec3<f32> {
     let (u, v, w) = bary;
     // 颜色 = u*v0_color + v*v1_color + w*v2_color
     points[0].color * w + points[1].color * v + points[2].color * u
 }
 
+pub fn interpolate_normal(points: &[RasterPoint; 3], bary: (f32, f32, f32)) -> Vec3<f32> {
+    let (u, v, w) = bary;
+    // 法线 = u*v0_normal + v*v1_normal + w*v2_normal
+    (points[0].normal * w + points[1].normal * v + points[2].normal * u).normalize()
+}
 
 pub fn get_box(vertices: &[Vec2<f32>; 3]) -> (i32, i32, i32, i32) {
     let mut min_x = vertices[0].x;
