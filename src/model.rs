@@ -1,9 +1,9 @@
-use crate::vertex::{ColoredVertex, Triangle};
+use crate::vertex::{ColoredVertex, Material, Triangle};
 use cgmath::{InnerSpace, Matrix4 as Mat4, SquareMatrix, Vector3 as Vec3, Vector2 as Vec2, Zero};
 use obj::Obj;
 use std::path::Path;
 
-pub fn load_obj(path: &Path) -> Result<Vec<Triangle>, Box<dyn std::error::Error>> {
+pub fn load_obj(path: &Path, material: &Material) -> Result<Vec<Triangle>, Box<dyn std::error::Error>> {
     let obj = Obj::load(Path::new(path)).expect("无法加载OBJ文件");
     let mut triangles = Vec::new();
     for object in obj.data.objects {
@@ -36,7 +36,7 @@ pub fn load_obj(path: &Path) -> Result<Vec<Triangle>, Box<dyn std::error::Error>
                             uv,
                         };
                     }
-                    triangles.push(Triangle::new(vertices[0], vertices[1], vertices[2]));
+                    triangles.push(Triangle::new(vertices[0], vertices[1], vertices[2], material));
                 }
             }
         }

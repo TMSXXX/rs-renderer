@@ -1,3 +1,7 @@
+use cgmath::Vector3 as Vec3;
+
+use crate::{BLUE, FAR_PLANE, NEAR_PLANE};
+
 #[derive(Clone)]
 pub struct FrameBuffer {
     pub width: usize,
@@ -8,24 +12,24 @@ pub struct FrameBuffer {
 
 impl FrameBuffer {
     pub fn new(width: usize, height: usize) -> Self {
-        let far_plane = 5.0;
         FrameBuffer {
             width,
             height,
             data: vec![0; width * height],
-            depth: vec![far_plane; width * height],
+            depth: vec![1.0; width * height],
         }
     }
 
     pub fn clear(&mut self, color: u32) {
         self.data.fill(color);
-        self.depth.fill(5.0);
+        self.depth.fill(1.0);
     }
 
     pub fn put_pixel(&mut self, x: usize, y: usize, color: u32, depth: f32) {
         if x < self.width && y < self.height {
             let idx = y * self.width + x;
-            if depth < self.depth[idx] {
+            // 确保深度值在 [0, 1] 范围内，值越小越近
+            if depth >= 0.0 && depth <= 1.0 && depth < self.depth[idx] {
                 self.data[idx] = color;
                 self.depth[idx] = depth;
             }
@@ -35,68 +39,56 @@ impl FrameBuffer {
     pub fn ssaa(&self, factor: usize) -> Self {
         let new_width = self.width / factor;
         let new_height = self.height / factor;
-        let mut new_data = vec![0; new_width * new_height];
-        let mut new_depth = vec![f32::INFINITY; new_width * new_height];
+        let mut new_framebuffer = FrameBuffer::new(new_width, new_height);
 
-        // 遍历缩小后的每个像素
         for y in 0..new_height {
             for x in 0..new_width {
-                // 计算高分辨率中对应区域的像素
-                let mut r = 0u32;
-                let mut g = 0u32;
-                let mut b = 0u32;
-                let mut a = 0u32;
-                let count = (factor * factor) as u32;
+                let mut r_sum = 0u32;
+                let mut g_sum = 0u32;
+                let mut b_sum = 0u32;
+                let mut a_sum = 0u32;
+                let mut count = 0;
 
-                // 采样高分辨率区域内的所有像素
-                for dy in 0..factor {
-                    for dx in 0..factor {
-                        let src_x = x * factor + dx;
-                        let src_y = y * factor + dy;
-                        let src_idx = src_y * self.width + src_x;
-                        let color = self.data[src_idx];
-
-                        // 提取RGBA分量
-                        a += (color >> 24) & 0xFF;
-                        r += (color >> 16) & 0xFF;
-                        g += (color >> 8) & 0xFF;
-                        b += color & 0xFF;
+                for fy in 0..factor {
+                    for fx in 0..factor {
+                        let src_x = x * factor + fx;
+                        let src_y = y * factor + fy;
+                        if src_x < self.width && src_y < self.height {
+                            let idx = src_y * self.width + src_x;
+                            let color = self.data[idx];
+                            a_sum += (color >> 24) & 0xFF;
+                            r_sum += (color >> 16) & 0xFF;
+                            g_sum += (color >> 8) & 0xFF;
+                            b_sum += color & 0xFF;
+                            count += 1;
+                        }
                     }
                 }
 
-                // 计算平均值（关键：包括背景色像素）
-                let avg_a = (a / count) as u8;
-                let avg_r = (r / count) as u8;
-                let avg_g = (g / count) as u8;
-                let avg_b = (b / count) as u8;
+                if count > 0 {
+                    let a_avg = (a_sum / count) as u32;
+                    let r_avg = (r_sum / count) as u32;
+                    let g_avg = (g_sum / count) as u32;
+                    let b_avg = (b_sum / count) as u32;
 
-                // 合并为新颜色
-                let new_color = (avg_a as u32) << 24
-                    | (avg_r as u32) << 16
-                    | (avg_g as u32) << 8
-                    | avg_b as u32;
-                new_data[y * new_width + x] = new_color;
-
-                new_depth[y * new_width + x] = self.depth[y * factor * self.width + x * factor];
+                    let avg_color = (a_avg << 24) | (r_avg << 16) | (g_avg << 8) | b_avg;
+                    new_framebuffer.data[y * new_width + x] = avg_color;
+                }
             }
         }
-
-        Self {
-            width: new_width,
-            height: new_height,
-            data: new_data,
-            depth: new_depth,
-        }
+        new_framebuffer
     }
 
-    pub fn save_to_image(&self, filepath: &str) -> Result<(), image::ImageError> {
-        use image::{ImageBuffer, Rgba};
 
+    pub fn save_as_image(&self, filepath: &str) -> Result<(), image::ImageError> {
+        use image::{ImageBuffer, Rgba};
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
         for y in 0..self.height {
             for x in 0..self.width {
-                let color = self.data[y * self.width + x];
+                let idx = y * self.width + x;
+                let color = self.data[idx];
+
                 let a = ((color >> 24) & 0xFF) as u8;
                 let r = ((color >> 16) & 0xFF) as u8;
                 let g = ((color >> 8) & 0xFF) as u8;
@@ -114,9 +106,8 @@ impl FrameBuffer {
         use image::{ImageBuffer, Rgba};
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        // 方法1：使用相机的近远平面范围（更准确）
-        let near_plane = 1.0; // 对应相机的near参数
-        let far_plane = 5.0; // 对应相机的far参数
+        let near_plane = NEAR_PLANE; // 对应相机的near参数
+        let far_plane = FAR_PLANE; // 对应相机的far参数
 
         for y in 0..self.height {
             for x in 0..self.width {
@@ -129,17 +120,14 @@ impl FrameBuffer {
                 } else if depth <= near_plane {
                     0.0 // 近处物体归一化为0.0（白色）
                 } else {
-                    // 线性映射到[0,1]：近→0（白），远→1（黑）
                     (depth - near_plane) / (far_plane - near_plane)
                 };
 
-                // 反转映射：让近处更亮，远处更暗
-                let brightness = (1.0 - normalized) * 255.0;
-                let val = brightness as u8;
-
-                img.put_pixel(x as u32, y as u32, Rgba([val, val, val, 255]));
+                let color = (255.0 * (1.0 - normalized)) as u8; // 翻转颜色，近处亮，远处暗
+                img.put_pixel(x as u32, y as u32, Rgba([color, color, color, 255]));
             }
         }
+
         img.save(filepath)
     }
 }

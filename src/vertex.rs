@@ -1,4 +1,50 @@
 use cgmath::{InnerSpace, Vector2 as Vec2, Vector3 as Vec3, Matrix4 as Mat4, Zero};
+use crate::renderer::Renderer;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Material {
+    pub ambient: Vec3<f32>,    // 环境光反射率（通常与漫反射相同）
+    pub diffuse: Vec3<f32>,    // 漫反射率（影响物体基础颜色）
+    pub specular: Vec3<f32>,   // 高光颜色（金属常用光源色，塑料常用白色）
+    pub specular_strength: f32, // 高光强度（0~1）
+    pub shininess: f32,        // 反光度（值越大高光越集中）
+}
+
+impl Material {
+    // 金属材质（高高光强度，高反光度）
+    pub fn metal() -> Self {
+        Self {
+            ambient: Vec3::new(0.2, 0.2, 0.2),
+            diffuse: Vec3::new(0.8, 0.8, 0.8),
+            specular: Vec3::new(1.0, 1.0, 1.0), // 金属高光接近光源色
+            specular_strength: 0.9,
+            shininess: 128.0,
+        }
+    }
+
+    // 塑料材质（中等高光强度，低反光度）
+    pub fn plastic() -> Self {
+        Self {
+            ambient: Vec3::new(0.1, 0.1, 0.1),
+            diffuse: Vec3::new(0.5, 0.5, 0.5),
+            specular: Vec3::new(0.8, 0.8, 0.8), // 塑料高光偏白
+            specular_strength: 0.5,
+            shininess: 32.0,
+        }
+    }
+
+    // 木材材质（低高光强度）
+    pub fn wood() -> Self {
+        Self {
+            ambient: Vec3::new(0.3, 0.2, 0.1),
+            diffuse: Vec3::new(0.6, 0.4, 0.2),
+            specular: Vec3::new(0.2, 0.2, 0.2), // 木材高光很弱
+            specular_strength: 0.1,
+            shininess: 8.0,
+        }
+    }
+}
+
 
 /// 带颜色信息的顶点（用于插值计算）
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +78,7 @@ impl ColoredVertex {
 #[derive(Debug, Clone, Copy)]
 pub struct RasterPoint {
     pub pos: Vec2<f32>,
+    pub world_pos: Vec3<f32>,
     pub color: Vec3<f32>,
     pub normal: Vec3<f32>,
     pub z: f32,
@@ -42,7 +89,15 @@ pub struct RasterPoint {
 pub struct Triangle {
     pub vertices: [ColoredVertex; 3],
     pub normal: Vec3<f32>,
+    pub material: Material,
 }
+
+pub struct RasterTriangle {
+    pub vertices: [RasterPoint; 3],
+    pub material: Material,
+}
+
+
 
 impl Triangle {
     fn compute_normal(v0: &ColoredVertex, v1: &ColoredVertex, v2: &ColoredVertex) -> Vec3<f32> {
@@ -50,11 +105,13 @@ impl Triangle {
         let edge2 = v2.pos - v0.pos;
         edge1.cross(edge2).normalize()
     }
-    pub fn new(v0: ColoredVertex, v1: ColoredVertex, v2: ColoredVertex) -> Self {
+    pub fn new(v0: ColoredVertex, v1: ColoredVertex, v2: ColoredVertex, material: &Material) -> Self {
         let normal = Self::compute_normal(&v0, &v1, &v2);
+        let material = material.clone();
         Self {
             vertices: [v0, v1, v2],
             normal: normal,
+            material,
         }
     }
     pub fn get_center(&self) -> Vec3<f32> {
@@ -65,24 +122,9 @@ impl Triangle {
         Self::compute_normal(&self.vertices[0], &self.vertices[1], &self.vertices[2])
     }
     pub fn is_backface_world_space(&self, camera_pos: Vec3<f32>, model_matrix: &Mat4<f32>) -> bool {
-        // 将三角形变换到世界空间
-        let world_vertices = [
-            (*model_matrix * self.vertices[0].pos.extend(1.0)).truncate(),
-            (*model_matrix * self.vertices[1].pos.extend(1.0)).truncate(),
-            (*model_matrix * self.vertices[2].pos.extend(1.0)).truncate(),
-        ];
-
-        // 计算世界空间法线
-        let edge1 = world_vertices[1] - world_vertices[0];
-        let edge2 = world_vertices[2] - world_vertices[0];
-        let world_normal = edge1.cross(edge2).normalize();
-
-        // 计算视图方向（从三角形中心指向相机）
-        let center = (world_vertices[0] + world_vertices[1] + world_vertices[2]) / 3.0;
-        let view_dir = (camera_pos - center).normalize();
-
-        // 背面检测
-        world_normal.dot(view_dir) <= 0.0
+        let world_normal = (*model_matrix * self.normal.extend(0.0)).truncate().normalize();
+        let view_dir = camera_pos - (*model_matrix * self.vertices[0].pos.extend(1.0)).truncate();
+        world_normal.dot(view_dir) < 0.0
     }
 }
 

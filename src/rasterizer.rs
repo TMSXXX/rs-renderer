@@ -29,8 +29,15 @@ pub fn interpolate_depth(
     bary: (f32, f32, f32),     // 重心坐标 (u, v, w)
 ) -> f32 {
     let (u, v, w) = bary;
-    // 深度 = u*v0_depth + v*v1_depth + w*v2_depth
-    points[0].z * w + points[1].z * v + points[2].z * u
+    
+    // 使用 1/z 进行线性插值
+    let inv_z0 = 1.0 / points[0].z;
+    let inv_z1 = 1.0 / points[1].z;
+    let inv_z2 = 1.0 / points[2].z;
+    
+    let interpolated_inv_z = w * inv_z0 + v * inv_z1 + u * inv_z2;
+    
+    1.0 / interpolated_inv_z
 }
 
 pub fn interpolate_uv(

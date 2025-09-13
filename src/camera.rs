@@ -1,4 +1,5 @@
-use cgmath::{Matrix, Matrix4 as Mat4, Rad, Vector3 as Vec3};
+use cgmath::{Deg, Matrix, Matrix4 as Mat4, Point3, Rad, Transform, Vector3 as Vec3};
+use cgmath::Angle;
 
 #[derive(Debug)]
 pub struct Frustum {
@@ -17,7 +18,7 @@ impl Frustum {
         let b = 1.0 / tan_half_fovy;
         let c = -(far + near) / (far - near);
         let d = -2.0 * far * near / (far - near);
-        
+
         // projection
         let mat = Mat4::new(
             a,    0.0,   0.0,   0.0,
@@ -39,22 +40,25 @@ impl Frustum {
     }
 }
 
+
 pub struct Camera {
     frustum: Frustum,
-    eye: Vec3<f32>,       // 摄像机位置
-    yaw: Rad<f32>,        // 偏航角（绕Y轴，单位：弧度）
-    pitch: Rad<f32>,      // 俯仰角（绕X轴，单位：弧度）
-    roll: Rad<f32>,       // 翻滚角（绕Z轴，单位：弧度）
+    pub(crate) eye: Vec3<f32>,
+    pub(crate) at: Vec3<f32>,
+    pub(crate) up: Vec3<f32>,
+    pub(crate) yaw: Rad<f32>,
+    pitch: Rad<f32>,
 }
 
 impl Camera {
     pub fn new(near: f32, far: f32, aspect: f32, fovy: f32) -> Self {
         Self {
             frustum: Frustum::new(near, aspect, far, fovy),
-            eye: Vec3::new(0.0, 0.0, 0.0),  // 默认位置
-            yaw: Rad(0.0),                  // 初始无偏航
-            pitch: Rad(0.0),                // 初始无俯仰
-            roll: Rad(0.0),                 // 初始无翻滚
+            eye: Vec3::new(0.0, 0.0, 5.0),
+            at: Vec3::new(0.0, 0.0, 0.0),
+            up: Vec3::new(0.0, 1.0, 0.0),
+            yaw: Rad(0.0),
+            pitch: Rad(0.0),
         }
     }
 
@@ -62,23 +66,22 @@ impl Camera {
         &self.frustum
     }
 
-    pub fn set_position(&mut self, pos: Vec3<f32>) {
-        self.eye = pos;
+    pub fn set_position(&mut self, position: Vec3<f32>) {
+        self.eye = position;
+    }
+    
+    pub fn set_rotation(&mut self, angle: Rad<f32>) {
+        self.yaw = angle;
+    }
+    
+    pub fn get_view_mat(&self) -> Mat4<f32> {
+        let rotation = Mat4::from_angle_y(self.yaw);
+        let pos = rotation.transform_point(Point3::new(0., 0., 5.));
+        
+        Mat4::look_at_rh(pos, Point3::new(0., 0., 0.), Vec3::new(0., 1., 0.))
     }
 
-    // 新增：设置欧拉角（弧度）
-    pub fn set_rotation(&mut self, yaw: Rad<f32>, pitch: Rad<f32>, roll: Rad<f32>) {
-        self.yaw = yaw;
-        self.pitch = pitch;
-        self.roll = roll;
-    }
-
-    pub fn get_view_matrix(&self) -> Mat4<f32> {
-        let rotation = Mat4::from_angle_x(self.pitch)  // 俯仰（X轴）
-            * Mat4::from_angle_y(self.yaw)             // 偏航（Y轴）
-            * Mat4::from_angle_z(self.roll);           // 翻滚（Z轴）
-
-        let translation = Mat4::from_translation(-self.eye);
-        translation * rotation.transpose()
+    pub fn get_view_proj_mat(&self) -> Mat4<f32> {
+        self.frustum.get_mat() * self.get_view_mat()
     }
 }
