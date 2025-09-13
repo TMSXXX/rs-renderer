@@ -113,15 +113,18 @@ impl Renderer {
         triangle: &RasterTriangle,
         texture: Option<&Texture>,
     ) {
+        /*
         let points = &triangle.vertices;
         let cross_product_z = (points[1].pos.x - points[0].pos.x)
             * (points[2].pos.y - points[0].pos.y)
             - (points[1].pos.y - points[0].pos.y) * (points[2].pos.x - points[0].pos.x);
 
-        if cross_product_z > 0.0 {
+        if cross_product_z < 0.0 {
             return;
         }
+        */
 
+        let points = &triangle.vertices;
         let material = &triangle.material;
         let (min_x, min_y, max_x, max_y) =
             rasterizer::get_box(&[points[0].pos, points[1].pos, points[2].pos]);
@@ -215,22 +218,24 @@ impl Renderer {
     }
 
     // 绘制多个带颜色插值的三角形
+
     pub fn render_colored_triangles(
         &mut self,
         triangles: &mut Vec<Triangle>,
         model: &Mat4<f32>,
         texture: Option<&Texture>,
     ) {
-        for triangle in triangles {
-            // if triangle.is_backface_world_space(self.camera.eye, model) {
-            //     continue; // 剔除背面
-            // }
+        let normal_matrix = model.invert().unwrap().transpose();
 
-            let raster_triangle = self.transform_colored_vertices(&triangle, model);
-            let raster_triangle = RasterTriangle {
-                vertices: raster_triangle.vertices,
-                material: triangle.material,
-            };
+        for triangle in triangles {
+            let world_pos = (*model * triangle.vertices[0].pos.extend(1.0)).truncate();
+            let view_dir = (self.camera.eye - world_pos).normalize();
+            let tri_normal = (normal_matrix * triangle.normal.extend(0.0)).truncate();
+            // 提前剔除背面
+            if view_dir.dot(tri_normal) <= 0.0 {
+                continue;
+            }
+            let raster_triangle = self.transform_colored_vertices(triangle, model);
             self.rasterize_colored_triangle(&raster_triangle, texture);
         }
     }
