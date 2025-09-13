@@ -51,7 +51,19 @@ impl Texture {
         let y = y.min(self.height - 1);
 
         // 4. 获取对应像素的颜色
-        self.get_pixel_color(x, y)
+    let mut color = self.get_pixel_color(x, y);
+
+    // 颜色校正：降低红色和绿色通道，提高蓝色通道以中和黄色
+    color.x *= 0.9;   // 红色通道减弱10%
+    color.y *= 0.9;   // 绿色通道减弱10%
+    color.z *= 1.1;   // 蓝色通道增强10%
+
+    // 确保颜色值在[0, 1]范围内
+    color.x = color.x.clamp(0.0, 1.0);
+    color.y = color.y.clamp(0.0, 1.0);
+    color.z = color.z.clamp(0.0, 1.0);
+
+    color
     }
 
     fn get_pixel_color(&self, x: usize, y: usize) -> Vec3<f32> {

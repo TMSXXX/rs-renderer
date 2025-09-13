@@ -307,6 +307,14 @@ impl Renderer {
         texture: Option<&Texture>,
     ) {
         let points = &triangle.vertices;
+        let cross_product_z = (points[1].pos.x - points[0].pos.x)
+            * (points[2].pos.y - points[0].pos.y)
+            - (points[1].pos.y - points[0].pos.y) * (points[2].pos.x - points[0].pos.x);
+
+        if cross_product_z > 0.0 {
+            return;
+        }
+
         let material = &triangle.material;
         let (min_x, min_y, max_x, max_y) =
             rasterizer::get_box(&[points[0].pos, points[1].pos, points[2].pos]);
@@ -352,7 +360,7 @@ impl Renderer {
                     // 漫反射分量
                     let light_dir = self.light.direction.normalize();
                     let diff = interpolated_normal.dot(-light_dir).max(0.0);
-                    // let diffuse = self.light.color * self.light.intensity * diff;
+                    let diffuse = self.light.color * self.light.intensity * diff;
 
                     let diffuse = if diff > 0.6 {
                         self.light.color * self.light.intensity * 1.1
@@ -382,8 +390,10 @@ impl Renderer {
                     final_color.x = final_color.x.clamp(0.0, 1.0);
                     final_color.y = final_color.y.clamp(0.0, 1.0);
                     final_color.z = final_color.z.clamp(0.0, 1.0);
-                    //let final_color = (interpolated_normal + Vec3::new(1.0, 1.0, 1.0)) * 0.5;
+                    //let final_color = (interpolated_color + Vec3::new(1.0, 1.0, 1.0)) * 0.5;
 
+                    // 法线产生
+                    //let final_color = interpolated_normal;
                     // 转换为 u32 颜色格式（0~255 范围）
                     let color = ((final_color.x * 255.0) as u32) << 16
                         | ((final_color.y * 255.0) as u32) << 8
@@ -405,9 +415,10 @@ impl Renderer {
         texture: Option<&Texture>,
     ) {
         for triangle in triangles {
-            if triangle.is_backface_world_space(Vec3::zero(), model) {
-                continue; // 剔除背面
-            }
+            // if triangle.is_backface_world_space(self.camera.eye, model) {
+            //     continue; // 剔除背面
+            // }
+
             let raster_triangle = self.transform_colored_vertices(&triangle, model);
             let raster_triangle = RasterTriangle {
                 vertices: raster_triangle.vertices,

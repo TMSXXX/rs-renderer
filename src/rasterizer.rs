@@ -21,7 +21,7 @@ pub fn get_barycentric_coords(vertices: &[Vec2<f32>; 3], p: &Vec2<f32>) -> Optio
     let w = (d00 * d21 - d01 * d20) / denom;
     let u = 1.0 - v - w;
 
-    Some((w, v, u)) // 之前的顺序记反了，插值的走向不对
+    Some((u, v, w)) // 之前的顺序记反了，插值的走向不对
 }
 
 pub fn interpolate_depth(
@@ -35,7 +35,7 @@ pub fn interpolate_depth(
     let inv_z1 = 1.0 / points[1].z;
     let inv_z2 = 1.0 / points[2].z;
     
-    let interpolated_inv_z = w * inv_z0 + v * inv_z1 + u * inv_z2;
+    let interpolated_inv_z = u * inv_z0 + v * inv_z1 + w * inv_z2;
     
     1.0 / interpolated_inv_z
 }
@@ -45,7 +45,7 @@ pub fn interpolate_uv(
     bary: (f32, f32, f32),
 ) -> Vec2<f32> {
     let (u, v, w) = bary;
-    points[0].uv * w + points[1].uv * v + points[2].uv * u
+    points[0].uv * u + points[1].uv * v + points[2].uv * w
 }
 
 pub fn interpolate_color(
@@ -60,7 +60,7 @@ pub fn interpolate_color(
 pub fn interpolate_normal(points: &[RasterPoint; 3], bary: (f32, f32, f32)) -> Vec3<f32> {
     let (u, v, w) = bary;
     // 法线 = u*v0_normal + v*v1_normal + w*v2_normal
-    (points[0].normal * w + points[1].normal * v + points[2].normal * u).normalize()
+    (points[0].normal * u + points[1].normal * v + points[2].normal * w).normalize()
 }
 
 pub fn get_box(vertices: &[Vec2<f32>; 3]) -> (i32, i32, i32, i32) {
