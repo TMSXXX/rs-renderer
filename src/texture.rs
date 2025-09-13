@@ -2,6 +2,7 @@ use cgmath::{Vector2 as Vec2, Vector3 as Vec3};
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
 
+#[derive(Debug)]
 pub struct Texture {
     pub width: usize,
     pub height: usize,
