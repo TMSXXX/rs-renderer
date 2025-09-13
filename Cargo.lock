@@ -1114,6 +1114,8 @@ dependencies = [
  "image",
  "minifb",
  "obj",
+ "serde",
+ "serde_json",
  "tobj",
 ]
 

@@ -6,6 +6,7 @@ mod renderer;
 mod texture;
 mod vertex;
 mod sandbox;
+mod json_struct;
 mod renderer_debug; // 已经被迁移出去的旧函数 
 
 const WINDOW_HEIGHT: usize = 720;
@@ -18,6 +19,6 @@ const NEAR_PLANE: f32 = 5.;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = sandbox::run_app();
+    let _ = sandbox::run_json();
     Ok(())
 }

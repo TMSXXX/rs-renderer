@@ -1,9 +1,91 @@
-use cgmath::{Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero, Deg};
-use std::{error::Error, f32::consts::PI};
+use cgmath::{
+    Array, Deg, Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero,
+};
+use serde_json::from_reader;
+use std::{error::Error, f32::consts::PI, fs::File, path::Path};
 
 use crate::{
-    BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH, camera::{self, Camera}, model::load_obj, renderer::Renderer, texture, vertex::{ColoredVertex, Material, Triangle}
+    BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH,
+    camera::{self, Camera},
+    json_struct::{CameraConfig, JsonConfig, ModelConfig},
+    model::load_obj,
+    renderer::Renderer,
+    texture,
+    vertex::{ColoredVertex, Material, Triangle},
 };
+
+fn match_material(string: &str) -> Material {
+    match string {
+        "plastic" => Material::plastic(),
+        "metal" => Material::metal(),
+        "wood" => Material::wood(),
+        _ => {
+            println!("无此种材质预设，将默认使用塑料材质");
+            Material::plastic()
+        }
+    }
+}
+
+pub fn parse_json(
+    path: &Path,
+) -> Result<(CameraConfig, Vec<ModelConfig>), Box<dyn std::error::Error>> {
+    let file = File::open(Path::new(path))?;
+    let config: JsonConfig = from_reader(file)?;
+    println!("成功获取json");
+    Ok((config.camera, config.models))
+}
+
+pub fn run_json() -> Result<(), Box<dyn Error>> {
+    let width = 3200;
+    let height = 2400;
+    let args: Vec<String> = std::env::args().collect();
+    let path = args[1].clone();
+    let (camera_config, models_config) = parse_json(Path::new(&path)).unwrap();
+    let c_position: Vec3<f32> = camera_config.position.into();
+    let c_rotation = camera_config.angle.map(|v| Deg(v)).into();
+    println!("相机角度：{:?}", c_rotation);
+
+    let mut camera = set_camera(c_position, c_rotation);
+    let mut camera = set_camera(
+        Vec3 {
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        },
+        Vec3 {
+            x: Deg(0.),
+            y: Deg(0.),
+            z: Deg(0.),
+        },
+    );
+    let mut renderer = Renderer::new(camera, width, height);
+    renderer.framebuffer.clear(BLUE);
+    println!("初始化完成");
+    for model_config in models_config {
+        let mut model = load_obj(
+            std::path::Path::new(&model_config.path),
+            &match_material(&model_config.material),
+        )?;
+        println!("成功读取模型");
+        let tex_idx = if model_config.tex_path.is_empty() {
+            None
+        } else {
+            Some(&texture::Texture::from_file(std::path::Path::new(
+                &model_config.tex_path,
+            ))?)
+        };
+
+        println!("成功读取材质");
+        let model_mat = Mat4::from_translation(model_config.position.into());
+        println!("开始渲染");
+        renderer.render_colored_triangles(&mut model, &model_mat, tex_idx);
+        println!("成功渲染一模型");
+    }
+    renderer.draw_depth_outline_prewitt(0.1, 2);
+    let _ = renderer.framebuffer.save_as_image("output1.png")?;
+    println!("已渲染完成");
+    Ok(())
+}
 
 #[rustfmt::skip]
 fn rotate_around_self(angle: f32, center: Vec3<f32>) -> Mat4<f32> {
@@ -41,19 +123,63 @@ pub fn create_floor() -> Vec<Triangle> {
             let z0 = -half_size + z_idx as f32 * cell_size;
             let z1 = z0 + cell_size;
 
-            let v0 = ColoredVertex { pos: Vec3::new(x0, -3., z0), color: if (x_idx + z_idx) % 2 == 0 { color1 } else { color2 }, normal: Vec3::new(0.0, 1.0, 0.0), uv: Vec2::new(0.0, 0.0) };
-            let v1 = ColoredVertex { pos: Vec3::new(x1, -3., z0), color: if (x_idx + z_idx) % 2 == 0 { color1 } else { color2 }, normal: Vec3::new(0.0, 1.0, 0.0), uv: Vec2::new(1.0, 0.0) };
-            let v2 = ColoredVertex { pos: Vec3::new(x1, -3., z1), color: if (x_idx + z_idx) % 2 == 0 { color1 } else { color2 }, normal: Vec3::new(0.0, 1.0, 0.0), uv: Vec2::new(1.0, 1.0) };
-            let v3 = ColoredVertex { pos: Vec3::new(x0, -3., z1), color: if (x_idx + z_idx) % 2 == 0 { color1 } else { color2 }, normal: Vec3::new(0.0, 1.0, 0.0), uv: Vec2::new(0.0, 1.0) };
+            let v0 = ColoredVertex {
+                pos: Vec3::new(x0, -3., z0),
+                color: if (x_idx + z_idx) % 2 == 0 {
+                    color1
+                } else {
+                    color2
+                },
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec2::new(0.0, 0.0),
+            };
+            let v1 = ColoredVertex {
+                pos: Vec3::new(x1, -3., z0),
+                color: if (x_idx + z_idx) % 2 == 0 {
+                    color1
+                } else {
+                    color2
+                },
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec2::new(1.0, 0.0),
+            };
+            let v2 = ColoredVertex {
+                pos: Vec3::new(x1, -3., z1),
+                color: if (x_idx + z_idx) % 2 == 0 {
+                    color1
+                } else {
+                    color2
+                },
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec2::new(1.0, 1.0),
+            };
+            let v3 = ColoredVertex {
+                pos: Vec3::new(x0, -3., z1),
+                color: if (x_idx + z_idx) % 2 == 0 {
+                    color1
+                } else {
+                    color2
+                },
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec2::new(0.0, 1.0),
+            };
 
-            triangles.push(Triangle { vertices: [v0, v1, v2], normal: Vec3::new(0.0, 1.0, 0.0), material: Material::plastic() });
-            triangles.push(Triangle { vertices: [v2, v3, v0], normal: Vec3::new(0.0, 1.0, 0.0), material: Material::plastic() });
+            triangles.push(Triangle {
+                vertices: [v0, v1, v2],
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                material: Material::plastic(),
+            });
+            triangles.push(Triangle {
+                vertices: [v2, v3, v0],
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                material: Material::plastic(),
+            });
         }
     }
     triangles
 }
 
-pub fn set_camera() -> Camera {
+pub fn set_camera(position: Vec3<f32>, rotation: Vec3<Deg<f32>>) -> Camera {
     let mut camera = Camera::new(
         Vec3::zero(), //初始值保持为0
         NEAR_PLANE,
@@ -61,8 +187,8 @@ pub fn set_camera() -> Camera {
         WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
         45.0, //现在可以直接传入镜头角度
     );
-    camera.set_position(Vec3::new(0.0, 5.0, 15.0));
-    camera.set_rotation(Deg(-90.0), Deg(-15.0), Deg(0.0));
+    camera.set_position(position);
+    camera.set_rotation(rotation.x, rotation.y, rotation.z);
     camera
 }
 
@@ -70,7 +196,18 @@ pub fn run_app() -> Result<(), Box<dyn Error>> {
     // 初始设置
     let width = 1600;
     let height = 1200;
-    let mut camera = set_camera();
+    let mut camera = set_camera(
+        Vec3 {
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        },
+        Vec3 {
+            x: Deg(0.),
+            y: Deg(0.),
+            z: Deg(0.),
+        },
+    );
     let mut renderer = Renderer::new(camera, width, height);
     renderer.framebuffer.clear(BLUE);
 
@@ -80,19 +217,44 @@ pub fn run_app() -> Result<(), Box<dyn Error>> {
         std::path::Path::new("./models/miku_race.obj"),
         &Material::metal(),
     )?;
-    let mut model2 = load_obj(std::path::Path::new("./models/bunny_10k.obj"), &Material::metal())?;
+    let mut model2 = load_obj(
+        std::path::Path::new("./models/bunny_10k.obj"),
+        &Material::metal(),
+    )?;
     let tex_idx = texture::Texture::from_file(std::path::Path::new("./models/miku_race.jpg"))?;
 
     for i in 0..120 {
-        println!("渲染第{}帧,\n相机坐标(X: {:?} Y: {:?} Z: {:?})\n相机角度(偏航: {:?} 俯仰: {:?} 翻滚: {:?})",i, renderer.camera.eye.x, renderer.camera.eye.y, renderer.camera.eye.z, renderer.camera.yaw, renderer.camera.pitch, renderer.camera.roll);
+        println!(
+            "渲染第{}帧,\n相机坐标(X: {:?} Y: {:?} Z: {:?})\n相机角度(偏航: {:?} 俯仰: {:?} 翻滚: {:?})",
+            i,
+            renderer.camera.eye.x,
+            renderer.camera.eye.y,
+            renderer.camera.eye.z,
+            renderer.camera.yaw,
+            renderer.camera.pitch,
+            renderer.camera.roll
+        );
 
-        renderer.camera.process_rotation(Deg(0.0), Deg(0.0), Deg(3.0));
+        renderer
+            .camera
+            .process_rotation(Deg(0.0), Deg(0.0), Deg(3.0));
 
         let model_mat = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
-        let model_mat2: Mat4<f32> = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
+        let model_mat2: Mat4<f32> =
+            rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
         renderer.framebuffer.clear(BLUE);
-        renderer.render_colored_triangles(&mut model1, &(model_mat*Mat4::from_scale(0.6)*Mat4::from_translation(Vec3::new(-0.2, 0., -5.0))), Some(&tex_idx));
-        renderer.render_colored_triangles(&mut model2, &(&model_mat2*Mat4::from_translation(Vec3::new(-5., 2.0, -6.0))), None);
+        renderer.render_colored_triangles(
+            &mut model1,
+            &(model_mat
+                * Mat4::from_scale(0.6)
+                * Mat4::from_translation(Vec3::new(-0.2, 0., -5.0))),
+            Some(&tex_idx),
+        );
+        renderer.render_colored_triangles(
+            &mut model2,
+            &(&model_mat2 * Mat4::from_translation(Vec3::new(-5., 2.0, -6.0))),
+            None,
+        );
         //renderer.render_colored_triangles(&mut floor, &Mat4::identity(), None);
         renderer.draw_depth_outline_prewitt(0.1, 2);
         let path = format!("./output/test_{}.png", i);

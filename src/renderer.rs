@@ -102,6 +102,7 @@ impl Renderer {
                 world_pos,
             }
         });
+        print!(" 转换");
         RasterTriangle {
             vertices: raster_vertices,
             material: triangle.material,
@@ -215,6 +216,7 @@ impl Renderer {
                 }
             }
         }
+        println!("着色");
     }
 
     // 绘制多个带颜色插值的三角形
@@ -225,9 +227,12 @@ impl Renderer {
         model: &Mat4<f32>,
         texture: Option<&Texture>,
     ) {
+        println!("三角形数量: {}", triangles.len());
         let normal_matrix = model.invert().unwrap().transpose();
-
+        let mut i = 0;
         for triangle in triangles {
+            println!("{i}");
+            i += 1;
             let world_pos = (*model * triangle.vertices[0].pos.extend(1.0)).truncate();
             let view_dir = (self.camera.eye - world_pos).normalize();
             let tri_normal = (normal_matrix * triangle.normal.extend(0.0)).truncate();
