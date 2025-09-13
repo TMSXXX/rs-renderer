@@ -1,4 +1,4 @@
-use cgmath::{Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3};
+use cgmath::{Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero, Deg};
 use std::{error::Error, f32::consts::PI};
 
 use crate::{
@@ -55,19 +55,21 @@ pub fn create_floor() -> Vec<Triangle> {
 
 pub fn set_camera() -> Camera {
     let mut camera = Camera::new(
+        Vec3::zero(), //初始值保持为0
         NEAR_PLANE,
         FAR_PLANE,
         WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32,
-        (45. as f32).to_radians(),
+        45.0, //现在可以直接传入镜头角度
     );
-    camera.set_position(Vec3::new(0., 10., 0.));
+    camera.set_position(Vec3::new(0.0, 5.0, 15.0));
+    camera.set_rotation(Deg(-90.0), Deg(-15.0), Deg(0.0));
     camera
 }
 
 pub fn run_app() -> Result<(), Box<dyn Error>> {
     // 初始设置
-    let width = 3200;
-    let height = 2400;
+    let width = 1600;
+    let height = 1200;
     let mut camera = set_camera();
     let mut renderer = Renderer::new(camera, width, height);
     renderer.framebuffer.clear(BLUE);
@@ -82,9 +84,12 @@ pub fn run_app() -> Result<(), Box<dyn Error>> {
     let tex_idx = texture::Texture::from_file(std::path::Path::new("./models/miku_race.jpg"))?;
 
     for i in 0..120 {
-        println!("渲染第{}帧, 相机角度:{:?}",i, renderer.camera.yaw);
+        println!("渲染第{}帧,\n相机坐标(X: {:?} Y: {:?} Z: {:?})\n相机角度(偏航: {:?} 俯仰: {:?} 翻滚: {:?})",i, renderer.camera.eye.x, renderer.camera.eye.y, renderer.camera.eye.z, renderer.camera.yaw, renderer.camera.pitch, renderer.camera.roll);
+
+        renderer.camera.process_rotation(Deg(0.0), Deg(0.0), Deg(3.0));
+
         let model_mat = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
-        let model_mat2 = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
+        let model_mat2: Mat4<f32> = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
         renderer.framebuffer.clear(BLUE);
         renderer.render_colored_triangles(&mut model1, &(model_mat*Mat4::from_scale(0.6)*Mat4::from_translation(Vec3::new(-0.2, 0., -5.0))), Some(&tex_idx));
         renderer.render_colored_triangles(&mut model2, &(&model_mat2*Mat4::from_translation(Vec3::new(-5., 2.0, -6.0))), None);
