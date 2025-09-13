@@ -46,18 +46,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     println!("相机角度：{:?}", c_rotation);
 
     let mut camera = set_camera(c_position, c_rotation);
-    let mut camera = set_camera(
-        Vec3 {
-            x: 0.,
-            y: 0.,
-            z: 0.,
-        },
-        Vec3 {
-            x: Deg(0.),
-            y: Deg(0.),
-            z: Deg(0.),
-        },
-    );
+    
     let mut renderer = Renderer::new(camera, width, height);
     renderer.framebuffer.clear(BLUE);
     println!("初始化完成");
@@ -66,11 +55,12 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
             std::path::Path::new(&model_config.path),
             &match_material(&model_config.material),
         )?;
+        
         println!("成功读取模型");
-        let tex_idx = if model_config.tex_path.is_empty() {
+        let texture_owner: Option<texture::Texture> = if model_config.tex_path.is_empty() {
             None
         } else {
-            Some(&texture::Texture::from_file(std::path::Path::new(
+            Some(texture::Texture::from_file(std::path::Path::new(
                 &model_config.tex_path,
             ))?)
         };
@@ -78,7 +68,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
         println!("成功读取材质");
         let model_mat = Mat4::from_translation(model_config.position.into());
         println!("开始渲染");
-        renderer.render_colored_triangles(&mut model, &model_mat, tex_idx);
+        renderer.render_colored_triangles(&mut model, &model_mat, texture_owner.as_ref());
         println!("成功渲染一模型");
     }
     renderer.draw_depth_outline_prewitt(0.1, 2);
