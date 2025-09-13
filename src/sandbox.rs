@@ -90,7 +90,7 @@ pub fn run_app() -> Result<(), Box<dyn Error>> {
         renderer.render_colored_triangles(&mut model2, &(&model_mat2*Mat4::from_translation(Vec3::new(-5., 2.0, -6.0))), None);
         //renderer.render_colored_triangles(&mut floor, &Mat4::identity(), None);
         renderer.draw_depth_outline_prewitt(0.1, 2);
-        let path = format!("./src/output/test_{}.png", i);
+        let path = format!("./output/test_{}.png", i);
         let _ = renderer.framebuffer.ssaa(2).save_as_image(&path);
         //let _ = renderer.framebuffer.save_depth_as_image(&format!("./src/output/test_depth_{}.png", i));
     }
