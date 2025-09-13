@@ -6,6 +6,7 @@ mod renderer;
 mod texture;
 mod vertex;
 mod sandbox;
+mod renderer_debug; // 已经被迁移出去的旧函数 
 
 const WINDOW_HEIGHT: usize = 720;
 const WINDOW_WIDTH: usize = 1024;
