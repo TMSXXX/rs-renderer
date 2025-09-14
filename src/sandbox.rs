@@ -63,7 +63,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
 
     let mut renderer = Renderer::new(camera, width, height);
     renderer.light.set_light(light_config.color, light_config.direction);
-    renderer.framebuffer.clear(BLUE);
+    renderer.framebuffer.lock().clear(BLUE);
     
     
     println!("初始化完成");
@@ -123,7 +123,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     println!("开始后处理 (SSAA 及保存)...");
     let post_processing_start_time = Instant::now(); // 后处理时间
 
-    let _ = renderer.framebuffer.ssaa(ssaa_scale).save_as_image("output1.png")?;
+    let _ = renderer.framebuffer.lock().ssaa(ssaa_scale).save_as_image("output1.png")?;
       
     let post_processing_elapsed_time = post_processing_start_time.elapsed(); //
     println!("后处理耗时: {:.2?}", post_processing_elapsed_time); //后处理时间
