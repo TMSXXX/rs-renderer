@@ -1,4 +1,5 @@
 use cgmath::{ElementWise, InnerSpace, Vector2 as Vec2, Vector3 as Vec3};
+use rand::Rng;
 
 use crate::renderer::Light; // 从 renderer 模块导入 Light
 use crate::texture::Texture;
@@ -20,7 +21,6 @@ pub trait FragmentShader {
     // 输入插值后的片元数据，输出最终的颜色 (0.0 ~ 1.0 范围的 Vec3)
     fn shade(&self, data: FragmentData) -> Vec3<f32>;
 }
-
 
 //非线性漫反射：卡通风格渲染
 pub struct ToonShader {
@@ -63,7 +63,7 @@ impl FragmentShader for ToonShader {
                 * data.material.specular_strength
                 * spec
         };
-        
+
         // 合并光照
         let final_lighting = ambient + diffuse + specular;
         let mut final_color = base_color.mul_element_wise(final_lighting);
@@ -97,7 +97,7 @@ impl<'a> FragmentShader for PhongShader {
         let light_dir = self.light.direction.normalize();
         let diff = data.normal.dot(-light_dir).max(0.0);
         let diffuse = self.light.color * self.light.intensity * diff;
-        
+
         // 高光分量 (Specular)
         let specular = {
             let view_dir = (data.camera_pos - data.world_pos).normalize();
@@ -108,7 +108,7 @@ impl<'a> FragmentShader for PhongShader {
                 * data.material.specular_strength
                 * spec
         };
-        
+
         // 合并光照
         let final_lighting = ambient + diffuse + specular;
         let mut final_color = base_color.mul_element_wise(final_lighting);
@@ -126,9 +126,55 @@ pub struct NormalDebugShader;
 
 impl FragmentShader for NormalDebugShader {
     fn shade(&self, data: FragmentData) -> Vec3<f32> {
-
         let color = (data.normal + Vec3::new(1.0, 1.0, 1.0)) * 0.5;
 
         color
+    }
+}
+
+pub struct InkShader {
+    pub light: Light,
+}
+
+impl FragmentShader for InkShader {
+    fn shade(&self, data: FragmentData) -> Vec3<f32> {
+        let mut base_color = data.color;
+        if let Some(tex) = data.texture {
+            base_color = tex.sample(data.uv);
+        }
+        let gray = base_color.x * 0.299 + base_color.y * 0.587 + base_color.z * 0.114;
+        let gray_color = Vec3::new(gray, gray, gray);
+
+        let ambient = self.light.ambient_color * self.light.ambient_strength;
+
+        let light_dir = self.light.direction.normalize();
+        let diff = data.normal.dot(-light_dir).max(0.0);
+        let diffuse = if diff > 0.8 {
+            self.light.color * self.light.intensity * 1.1
+        } else if diff > 0.3 {
+            self.light.color * self.light.intensity * 0.6
+        } else {
+            self.light.color * self.light.intensity * 0.05
+        };
+        let mut final_color = gray_color.mul_element_wise(ambient + diffuse);
+
+        let rnumber = rand::random_range(0..=100);
+        match rnumber {
+            0..2 => {
+                if final_color.x < 0.2 {
+                    final_color *= 0.1;
+                }
+            }
+            10 => {
+                final_color *= 2.;
+            }
+            _ => {}
+        }
+
+        final_color.x = final_color.x.clamp(0.0, 1.0);
+        final_color.y = final_color.y.clamp(0.0, 1.0);
+        final_color.z = final_color.z.clamp(0.0, 1.0);
+
+        final_color
     }
 }

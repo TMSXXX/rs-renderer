@@ -1,15 +1,15 @@
 pub mod fragment_shader;
 
 use crate::BLACK;
+use crate::renderer::fragment_shader::InkShader;
 use crate::texture::Texture;
 use crate::vertex::{ColoredVertex, Material, RasterPoint, RasterTriangle, Triangle};
 use crate::{camera, framebuffer, rasterizer};
 use camera::Camera;
 use cgmath::{ElementWise, InnerSpace, Matrix, Matrix3, Matrix4 as Mat4, SquareMatrix, Zero, dot};
 use cgmath::{Matrix3 as Mat3, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, prelude::*};
+use fragment_shader::{FragmentData, FragmentShader, NormalDebugShader, PhongShader, ToonShader};
 use framebuffer::FrameBuffer;
-use fragment_shader::{FragmentShader, FragmentData,ToonShader, PhongShader, NormalDebugShader};
-
 
 use crate::renderer_debug::RendererDebugUtils; // 已经被迁移出去的旧函数 
 
@@ -19,7 +19,6 @@ pub struct Viewport {
     pub w: i32,
     pub h: i32,
 }
-
 
 #[derive(Clone, Copy)] // <--- 添加这一行
 pub struct Light {
@@ -40,13 +39,21 @@ impl Default for Light {
             ambient_color: Vec3::new(1.0, 1.0, 1.0), // 白色环境光
         }
     }
+
+}
+
+impl Light {
+    pub fn set_light(&mut self, color: [f32; 3], direction: [f32; 3]) {
+        self.color = Vec3::new(color[0], color[1], color[2]);
+        self.direction = Vec3::new(direction[0], direction[1], direction[2]).normalize();
+    }
 }
 
 pub struct Renderer {
     pub(crate) camera: Camera,
     pub(crate) framebuffer: FrameBuffer,
     pub(crate) viewport: Viewport,
-    light: Light,
+    pub(crate) light: Light,
 }
 
 impl Renderer {
@@ -65,7 +72,6 @@ impl Renderer {
         }
     }
 
-
     // 提取模型三角形并逐一送入渲染管线内
 
     pub fn render_colored_triangles(
@@ -73,18 +79,28 @@ impl Renderer {
         triangles: &mut Vec<Triangle>,
         model: &Mat4<f32>,
         texture: Option<&Texture>,
+        shader: &str,
     ) {
         println!("三角形数量: {}", triangles.len());
         let normal_matrix = model.invert().unwrap().transpose();
 
-        let shader = ToonShader { light: self.light };
+        let shader: Box<dyn FragmentShader> = match shader {
+            "toon" => Box::new(ToonShader { light: self.light }),
+            "ink" => Box::new(InkShader { light: self.light }),
+            "phong" => Box::new(PhongShader { light: self.light }),
+            _ => Box::new(ToonShader { light: self.light }),
+        };
+
         //let shader = PhongShader { light: self.light };
         //let shader = NormalDebugShader;
 
         let mut i = 0;
+        let count = triangles.len() == 200;
         for triangle in triangles {
-            //println!("{i}");
-            //i += 1;
+            if count {
+                println!("{i}");
+                i += 1;
+            }
             let world_pos = (*model * triangle.vertices[0].pos.extend(1.0)).truncate();
             let view_dir = (self.camera.eye - world_pos).normalize();
             let tri_normal = (normal_matrix * triangle.normal.extend(0.0)).truncate();
@@ -93,14 +109,13 @@ impl Renderer {
                 continue;
             }
             let raster_triangle = self.transform_colored_vertices(triangle, model);
-            self.rasterize_triangle(&raster_triangle, texture, &shader);
+            self.rasterize_triangle(&raster_triangle, texture, &*shader);
         }
     }
-    
 
     // 带颜色插值的变换
     // 其实就是一个完整的顶点着色器 Vertex Shader
-    pub fn transform_colored_vertices( 
+    pub fn transform_colored_vertices(
         &self,
         triangle: &Triangle,
         model: &Mat4<f32>,
@@ -146,11 +161,11 @@ impl Renderer {
     }
 
     // 进行光栅化
-    pub fn rasterize_triangle<S: FragmentShader>(
+    pub fn rasterize_triangle(
         &mut self,
         triangle: &RasterTriangle,
         texture: Option<&Texture>,
-        shader: &S, // 接收一个Shader
+        shader: &dyn FragmentShader, // 接收一个Shader
     ) {
         let points = &triangle.vertices;
         let (min_x, min_y, max_x, max_y) =
@@ -159,12 +174,15 @@ impl Renderer {
         for y in min_y..=max_y {
             for x in min_x..=max_x {
                 let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
-                if rasterizer::is_inside_triangle(&[points[0].pos, points[1].pos, points[2].pos], &p) {
-
+                if rasterizer::is_inside_triangle(
+                    &[points[0].pos, points[1].pos, points[2].pos],
+                    &p,
+                ) {
                     let bary = rasterizer::get_barycentric_coords(
                         &[points[0].pos, points[1].pos, points[2].pos],
                         &p,
-                    ).unwrap_or((0.0, 0.0, 0.0));
+                    )
+                    .unwrap_or((0.0, 0.0, 0.0));
 
                     // 插值所有属性
                     let interpolated_color = rasterizer::interpolate_color(points, bary);
@@ -194,19 +212,20 @@ impl Renderer {
 
                     // 转换为 u32 颜色格式
                     let color = ((final_color_vec.x * 255.0) as u32) << 16
-                            | ((final_color_vec.y * 255.0) as u32) << 8
-                            | ((final_color_vec.z * 255.0) as u32);
+                        | ((final_color_vec.y * 255.0) as u32) << 8
+                        | ((final_color_vec.z * 255.0) as u32);
                     let color = 0xFF000000 | color;
 
-                    self.framebuffer.put_pixel(x as usize, y as usize, color, interpolated_depth);
+                    self.framebuffer
+                        .put_pixel(x as usize, y as usize, color, interpolated_depth);
                 }
             }
         }
     }
-    pub fn draw_depth_outline_prewitt(&mut self, threshold: f32, line_width: usize) {
+    pub fn draw_depth_outline_sobel(&mut self, threshold: f32, line_width: usize) {
         // 定义Prewitt算子的水平和垂直卷积核（3x3二维数组）
-        let prewitt_x = [[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]];
-        let prewitt_y = [[-1.0, -1.0, -1.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];  // x方向Sobel核
+        let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];  // y方向Sobel核
 
         let width = self.framebuffer.width;
         let height = self.framebuffer.height;
@@ -243,8 +262,8 @@ impl Renderer {
                         let nx = (x as i32 + (kx as i32 - 1)) as usize;
 
                         // 累加梯度值：卷积核权重 × 深度值
-                        gx += prewitt_x[ky][kx] * depth_matrix[ny][nx];
-                        gy += prewitt_y[ky][kx] * depth_matrix[ny][nx];
+                        gx += sobel_x[ky][kx] * depth_matrix[ny][nx];
+                        gy += sobel_y[ky][kx] * depth_matrix[ny][nx];
                     }
                 }
 
@@ -269,6 +288,87 @@ impl Renderer {
                         let index = draw_y * width + draw_x;
                         // 设置轮廓颜色为黑色（RGBA）
                         self.framebuffer.data[index] = BLACK;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn draw_color_outline_sobel(&mut self, threshold: f32, line_width: usize) {
+        // Sobel
+    let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];  // x方向Sobel核
+    let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];  // y方向Sobel核
+
+        let width = self.framebuffer.width;
+        let height = self.framebuffer.height;
+        let color_buffer = self.framebuffer.data.clone(); // 此时 data 是 Vec<u32>
+
+        // 解析 u32 颜色为 RGB 通道（0.0~1.0 范围），存储为二维矩阵
+        let mut color_matrix = vec![vec![[0.0; 3]; width]; height]; // [y][x] -> [r, g, b]
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                let argb = color_buffer[idx]; // 假设为 ARGB8888 格式
+
+                // 提取 RGB 通道（8位转 0.0~1.0）
+                let r = ((argb >> 16) & 0xFF) as f32 / 255.0;
+                let g = ((argb >> 8) & 0xFF) as f32 / 255.0;
+                let b = (argb & 0xFF) as f32 / 255.0;
+
+                color_matrix[y][x] = [r, g, b];
+            }
+        }
+
+        let mut outline_pixels = Vec::new();
+
+        // 遍历计算颜色梯度（避开边界像素）
+        for y in 1..height - 1 {
+            for x in 1..width - 1 {
+                // 计算 RGB 三个通道的梯度
+                let (mut gx_r, mut gy_r) = (0.0, 0.0);
+                let (mut gx_g, mut gy_g) = (0.0, 0.0);
+                let (mut gx_b, mut gy_b) = (0.0, 0.0);
+
+                // 3x3 邻域卷积
+                for ky in 0..3 {
+                    for kx in 0..3 {
+                        let ny = (y as i32 + (ky as i32 - 1)) as usize;
+                        let nx = (x as i32 + (kx as i32 - 1)) as usize;
+
+                        // 对每个颜色通道应用卷积核
+                        gx_r += sobel_x[ky][kx] * color_matrix[ny][nx][0];
+                        gy_r += sobel_y[ky][kx] * color_matrix[ny][nx][0];
+
+                        gx_g += sobel_x[ky][kx] * color_matrix[ny][nx][1];
+                        gy_g += sobel_y[ky][kx] * color_matrix[ny][nx][1];
+
+                        gx_b += sobel_x[ky][kx] * color_matrix[ny][nx][2];
+                        gy_b += sobel_y[ky][kx] * color_matrix[ny][nx][2];
+                    }
+                }
+
+                // 计算梯度幅值（取三通道最大值）
+                let mag_r = gx_r.abs() + gy_r.abs();
+                let mag_g = gx_g.abs() + gy_g.abs();
+                let mag_b = gx_b.abs() + gy_b.abs();
+                let gradient_mag = mag_r.max(mag_g).max(mag_b);
+
+                // 超过阈值则视为边缘
+                if gradient_mag > threshold {
+                    outline_pixels.push((x, y));
+                }
+            }
+        }
+
+        // 绘制描边（直接操作 u32 颜色）
+        for &(x, y) in &outline_pixels {
+            for dy in 0..line_width {
+                for dx in 0..line_width {
+                    let draw_x = x + dx;
+                    let draw_y = y + dy;
+                    if draw_x < width && draw_y < height {
+                        let index = draw_y * width + draw_x;
+                        self.framebuffer.data[index] = BLACK; // 直接设置 u32 颜色
                     }
                 }
             }

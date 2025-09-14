@@ -7,7 +7,7 @@ use std::{error::Error, f32::consts::PI, fs::File, path::Path};
 use crate::{
     BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH,
     camera::{self, Camera},
-    json_struct::{CameraConfig, JsonConfig, ModelConfig},
+    json_struct::{CameraConfig, JsonConfig, LightConfig, ModelConfig},
     model::load_obj,
     renderer::Renderer,
     texture,
@@ -28,26 +28,41 @@ fn match_material(string: &str) -> Material {
 
 pub fn parse_json(
     path: &Path,
-) -> Result<(CameraConfig, Vec<ModelConfig>), Box<dyn std::error::Error>> {
+) -> Result<(CameraConfig, Vec<ModelConfig>, LightConfig), Box<dyn std::error::Error>> {
     let file = File::open(Path::new(path))?;
     let config: JsonConfig = from_reader(file)?;
     println!("成功获取json");
-    Ok((config.camera, config.models))
+    Ok((config.camera, config.models, config.light))
 }
 
 pub fn run_json() -> Result<(), Box<dyn Error>> {
-    let width = 3200;
-    let height = 2400;
     let args: Vec<String> = std::env::args().collect();
+    if args.len() < 4 {
+        return Err("参数不足！使用方式: program <json路径> <着色器方法> <ssaa倍数>".into());
+    }
+
+    // 从命令行读取SSAA值（第4个参数，索引为3）
+    let ssaa_scale: usize = match args[3].parse() {
+        Ok(val) => val,
+        Err(_) => return Err("SSAA值必须是正整数（如2、4）".into()),
+    };
+    // 验证SSAA值有效性（通常为2、4等倍数）
+    if ssaa_scale < 1 {
+        return Err("SSAA值必须大于等于1".into());
+    }
+    let width = 1920 * ssaa_scale;
+    let height = 1080 * ssaa_scale;
+    let shader_method = args[2].clone();
     let path = args[1].clone();
-    let (camera_config, models_config) = parse_json(Path::new(&path)).unwrap();
+    let (camera_config, models_config, light_config) = parse_json(Path::new(&path)).unwrap();
     let c_position: Vec3<f32> = camera_config.position.into();
     let c_rotation = camera_config.angle.map(|v| Deg(v)).into();
     println!("相机角度：{:?}", c_rotation);
 
     let mut camera = set_camera(c_position, c_rotation);
-    
+
     let mut renderer = Renderer::new(camera, width, height);
+    renderer.light.set_light(light_config.color, light_config.direction);
     renderer.framebuffer.clear(BLUE);
     println!("初始化完成");
     for model_config in models_config {
@@ -55,7 +70,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
             std::path::Path::new(&model_config.path),
             &match_material(&model_config.material),
         )?;
-        
+
         println!("成功读取模型");
         let texture_owner: Option<texture::Texture> = if model_config.tex_path.is_empty() {
             None
@@ -64,15 +79,33 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
                 &model_config.tex_path,
             ))?)
         };
-
         println!("成功读取材质");
-        let model_mat = Mat4::from_translation(model_config.position.into());
+        let [rx, ry, rz] = model_config.angle;
+        let rotation_mat =
+            Mat4::from_angle_x(Deg(rx)) * Mat4::from_angle_y(Deg(ry)) * Mat4::from_angle_z(Deg(rz));
+        let model_mat = rotation_mat
+            * Mat4::from_translation(model_config.position.into())
+            * Mat4::from_scale(model_config.scale);
         println!("开始渲染");
-        renderer.render_colored_triangles(&mut model, &model_mat, texture_owner.as_ref());
+        renderer.render_colored_triangles(
+            &mut model,
+            &model_mat,
+            texture_owner.as_ref(),
+            &shader_method,
+        );
         println!("成功渲染一模型");
     }
-    renderer.draw_depth_outline_prewitt(0.1, 2);
-    let _ = renderer.framebuffer.save_as_image("output1.png")?;
+    // let mut floor = create_floor();
+    // renderer.render_colored_triangles(&mut floor, &Mat4::from_translation(Vec3::new(0., -10., -30.)), None);
+    // println!("已绘制地板");
+    if shader_method == "ink" {
+        renderer.draw_color_outline_sobel(0.55, 1);
+        renderer.draw_depth_outline_sobel(0.1, 2);
+    }
+    if shader_method == "toon" {
+        renderer.draw_depth_outline_sobel(0.1, 2);
+    }
+    let _ = renderer.framebuffer.ssaa(ssaa_scale).save_as_image("output1.png")?;
     println!("已渲染完成");
     Ok(())
 }
@@ -98,7 +131,7 @@ fn rotate_around_self(angle: f32, center: Vec3<f32>) -> Mat4<f32> {
 
 pub fn create_floor() -> Vec<Triangle> {
     let mut triangles = Vec::new();
-    let size = 30.0;
+    let size = 40.0;
     let cell_count = 10;
     let half_size = size / 2.0;
     let cell_size = size / cell_count as f32;
@@ -157,12 +190,12 @@ pub fn create_floor() -> Vec<Triangle> {
             triangles.push(Triangle {
                 vertices: [v0, v1, v2],
                 normal: Vec3::new(0.0, 1.0, 0.0),
-                material: Material::plastic(),
+                material: Material::metal(),
             });
             triangles.push(Triangle {
                 vertices: [v2, v3, v0],
                 normal: Vec3::new(0.0, 1.0, 0.0),
-                material: Material::plastic(),
+                material: Material::metal(),
             });
         }
     }
@@ -180,77 +213,4 @@ pub fn set_camera(position: Vec3<f32>, rotation: Vec3<Deg<f32>>) -> Camera {
     camera.set_position(position);
     camera.set_rotation(rotation.x, rotation.y, rotation.z);
     camera
-}
-
-pub fn run_app() -> Result<(), Box<dyn Error>> {
-    // 初始设置
-    let width = 1600;
-    let height = 1200;
-    let mut camera = set_camera(
-        Vec3 {
-            x: 0.,
-            y: 0.,
-            z: 0.,
-        },
-        Vec3 {
-            x: Deg(0.),
-            y: Deg(0.),
-            z: Deg(0.),
-        },
-    );
-    let mut renderer = Renderer::new(camera, width, height);
-    renderer.framebuffer.clear(BLUE);
-
-    // 加载模型
-    let mut floor = create_floor();
-    let mut model1 = load_obj(
-        std::path::Path::new("./models/miku_race.obj"),
-        &Material::metal(),
-    )?;
-    let mut model2 = load_obj(
-        std::path::Path::new("./models/bunny_10k.obj"),
-        &Material::metal(),
-    )?;
-    let tex_idx = texture::Texture::from_file(std::path::Path::new("./models/miku_race.jpg"))?;
-
-    for i in 0..120 {
-        println!(
-            "渲染第{}帧,\n相机坐标(X: {:?} Y: {:?} Z: {:?})\n相机角度(偏航: {:?} 俯仰: {:?} 翻滚: {:?})",
-            i,
-            renderer.camera.eye.x,
-            renderer.camera.eye.y,
-            renderer.camera.eye.z,
-            renderer.camera.yaw,
-            renderer.camera.pitch,
-            renderer.camera.roll
-        );
-
-        renderer
-            .camera
-            .process_rotation(Deg(0.0), Deg(0.0), Deg(3.0));
-
-        let model_mat = rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
-        let model_mat2: Mat4<f32> =
-            rotate_around_self(PI / 60. * (i) as f32, Vec3::new(-0.2, 0., -5.0));
-        renderer.framebuffer.clear(BLUE);
-        renderer.render_colored_triangles(
-            &mut model1,
-            &(model_mat
-                * Mat4::from_scale(0.6)
-                * Mat4::from_translation(Vec3::new(-0.2, 0., -5.0))),
-            Some(&tex_idx),
-        );
-        renderer.render_colored_triangles(
-            &mut model2,
-            &(&model_mat2 * Mat4::from_translation(Vec3::new(-5., 2.0, -6.0))),
-            None,
-        );
-        //renderer.render_colored_triangles(&mut floor, &Mat4::identity(), None);
-        renderer.draw_depth_outline_prewitt(0.1, 2);
-        let path = format!("./output/test_{}.png", i);
-        let _ = renderer.framebuffer.ssaa(2).save_as_image(&path);
-        //let _ = renderer.framebuffer.save_depth_as_image(&format!("./src/output/test_depth_{}.png", i));
-    }
-
-    Ok(())
 }

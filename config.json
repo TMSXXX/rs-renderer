@@ -4,13 +4,35 @@
       "path": "./models/bunny_10k.obj",
       "material": "wood",
       "tex_path": "",
-      "position": [0, 0, -11],
-      "angle": [0, 0, 0]
+      "position": [0, -4, -8],
+      "angle": [0, 0, 0],
+      "scale": 2
+    },
+    {
+      "path": "./models/miku_race.obj",
+      "material": "metal",
+      "tex_path": "./models/miku_race.jpg",
+      "position": [4, -3, -20],
+      "angle": [-20, 30, 0],
+      "scale": 1
+    },
+    {
+      "path": "./models/JiaRan.obj",
+      "material": "metal",
+      "tex_path": "",
+      "position": [8, 0, -22],
+      "angle": [-20, 30, 0],
+      "scale": 0.5
     }
   ],
 
   "camera": {
-    "position": [0, 0, 0],
-    "angle": [-90, 0, 0]
+    "position": [0, 10, 0],
+    "angle": [-90, -45, 2]
+  },
+
+  "light": {
+    "direction": [1.0, -0.8, -1.0],
+    "color": [0.8, 0.8, 1]
   }
 }
