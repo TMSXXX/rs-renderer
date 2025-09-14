@@ -2,7 +2,7 @@ use cgmath::{
     Array, Deg, Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero,
 };
 use serde_json::from_reader;
-use std::{error::Error, f32::consts::PI, fs::File, path::Path};
+use std::{error::Error, f32::consts::PI, fs::File, path::Path, time::Instant};
 
 use crate::{
     BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH,
@@ -64,7 +64,11 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     let mut renderer = Renderer::new(camera, width, height);
     renderer.light.set_light(light_config.color, light_config.direction);
     renderer.framebuffer.clear(BLUE);
+    
+    
     println!("初始化完成");
+    let start_time = Instant::now(); //启动计时
+
     for model_config in models_config {
         let mut model = load_obj(
             std::path::Path::new(&model_config.path),
@@ -95,9 +99,15 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
         );
         println!("成功渲染一模型");
     }
-    // let mut floor = create_floor();
-    // renderer.render_colored_triangles(&mut floor, &Mat4::from_translation(Vec3::new(0., -10., -30.)), None);
-    // println!("已绘制地板");
+    let mut floor = create_floor();
+    renderer.render_colored_triangles(&mut floor, &Mat4::from_translation(Vec3::new(0., -10., -30.)), None, "phong");
+    println!("已绘制地板");
+
+    let rendering_elapsed_time = start_time.elapsed();  //三角形绘制计时
+    println!("三角形绘制过程耗时: {:.2?}", rendering_elapsed_time); 
+
+    println!("开始进行描边处理");
+    let outline_start_time = Instant::now(); // 描边时间
     if shader_method == "ink" {
         renderer.draw_color_outline_sobel(0.6, 1);
         renderer.draw_depth_outline_sobel(0.1, 2);
@@ -106,8 +116,20 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
         renderer.draw_color_outline_sobel(0.6, 1);
         renderer.draw_depth_outline_sobel(0.1, 2);
     }
-    let _ = renderer.framebuffer.ssaa(ssaa_scale).save_as_image("output1.png")?;
+    let outline_elapsed_time = outline_start_time.elapsed();
+    println!("描边过程耗时: {:.2?}", outline_elapsed_time); 
+
     println!("已渲染完成");
+
+    println!("开始后处理 (SSAA 及保存)...");
+    let post_processing_start_time = Instant::now(); // 后处理时间
+
+    let _ = renderer.framebuffer.ssaa(ssaa_scale).save_as_image("output1.png")?;
+      
+    let post_processing_elapsed_time = post_processing_start_time.elapsed(); //
+    println!("后处理耗时: {:.2?}", post_processing_elapsed_time); //后处理时间
+    
+    println!("全渲染流程已完成");  
     Ok(())
 }
 
