@@ -99,10 +99,11 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     // renderer.render_colored_triangles(&mut floor, &Mat4::from_translation(Vec3::new(0., -10., -30.)), None);
     // println!("已绘制地板");
     if shader_method == "ink" {
-        renderer.draw_color_outline_sobel(0.55, 1);
+        renderer.draw_color_outline_sobel(0.6, 1);
         renderer.draw_depth_outline_sobel(0.1, 2);
     }
     if shader_method == "toon" {
+        renderer.draw_color_outline_sobel(0.6, 1);
         renderer.draw_depth_outline_sobel(0.1, 2);
     }
     let _ = renderer.framebuffer.ssaa(ssaa_scale).save_as_image("output1.png")?;

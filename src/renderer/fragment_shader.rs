@@ -99,7 +99,7 @@ impl<'a> FragmentShader for PhongShader {
         let diffuse = self.light.color * self.light.intensity * diff;
 
         // 高光分量 (Specular)
-        let specular = {
+        let mut specular = {
             let view_dir = (data.camera_pos - data.world_pos).normalize();
             let half_dir = (-light_dir + view_dir).normalize();
             let spec = data.normal.dot(half_dir).max(0.0);
@@ -108,6 +108,13 @@ impl<'a> FragmentShader for PhongShader {
                 * data.material.specular_strength
                 * spec
         };
+
+        let split_level = 6.0;
+        specular = Vec3::new(
+            (specular.x * split_level).floor() / split_level,
+            (specular.y * split_level).floor() / split_level,
+            (specular.z * split_level).floor() / split_level,
+        );
 
         // 合并光照
         let final_lighting = ambient + diffuse + specular;
@@ -156,7 +163,23 @@ impl FragmentShader for InkShader {
         } else {
             self.light.color * self.light.intensity * 0.05
         };
-        let mut final_color = gray_color.mul_element_wise(ambient + diffuse);
+        let mut specular = {
+            let view_dir = (data.camera_pos - data.world_pos).normalize();
+            let half_dir = (-light_dir + view_dir).normalize();
+            let spec = data.normal.dot(half_dir).max(0.0);
+            let spec = spec.powf(data.material.shininess);
+            self.light.color.mul_element_wise(data.material.specular)
+                * data.material.specular_strength
+                * spec
+        };
+
+        let split_level = 6.0;
+        specular = Vec3::new(
+            (specular.x * split_level).floor() / split_level,
+            (specular.y * split_level).floor() / split_level,
+            (specular.z * split_level).floor() / split_level,
+        );
+        let mut final_color = gray_color.mul_element_wise(ambient + diffuse + specular);
 
         let rnumber = rand::random_range(0..=100);
         match rnumber {
