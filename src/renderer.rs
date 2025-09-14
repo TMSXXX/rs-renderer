@@ -1,22 +1,23 @@
+pub mod clip;
 pub mod fragment_shader;
 pub mod vertex_shader;
-pub mod clip;
 
 use crate::BLACK;
 use crate::renderer::fragment_shader::InkShader;
 use crate::texture::Texture;
-use crate::vertex::{ClipSpaceVertex, ColoredVertex, Material, RasterPoint, RasterTriangle, Triangle};
+use crate::vertex::{ClipSpaceVertex, Material, RasterPoint, RasterTriangle, Triangle};
 use crate::{camera, framebuffer, rasterizer};
 use camera::Camera;
-use cgmath::{ElementWise, InnerSpace, Matrix, Matrix3, Matrix4 as Mat4, SquareMatrix, Zero, dot};
-use cgmath::{Matrix3 as Mat3, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, prelude::*};
+use cgmath::{InnerSpace, Matrix, Matrix4 as Mat4, SquareMatrix};
+use cgmath::{Vector2 as Vec2, Vector3 as Vec3};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use fragment_shader::{FragmentData, FragmentShader, NormalDebugShader, PhongShader, ToonShader};
 use framebuffer::FrameBuffer;
 
-use self::vertex_shader::{DefaultVertexShader, VertexShader, VertexShaderUniforms};
 use self::clip::{Clipper, SimpleClipper};
+use self::vertex_shader::{DefaultVertexShader, VertexShader, VertexShaderUniforms};
 
-use crate::renderer_debug::RendererDebugUtils; // 已经被迁移出去的旧函数 
+//use crate::renderer_debug::RendererDebugUtils; // 已经被迁移出去的旧函数
 
 pub struct Viewport {
     pub x: i32,
@@ -44,7 +45,6 @@ impl Default for Light {
             ambient_color: Vec3::new(1.0, 1.0, 1.0), // 白色环境光
         }
     }
-
 }
 
 impl Light {
@@ -101,22 +101,17 @@ impl Renderer {
             "normal" => Box::new(NormalDebugShader),
             _ => Box::new(ToonShader { light: self.light }),
         };
-        
+
         let uniforms = VertexShaderUniforms {
             model_matrix: model,
             mvp_matrix: &mvp_matrix,
             normal_matrix: &normal_matrix,
         };
 
-        let mut i = 0;
-        let count = triangles.len() == 200;
         for triangle in triangles {
-            if count {
-                println!("{i}");
-                i += 1;
-            }
             //管线阶段 1: 背面剔除
-            let world_pos = (uniforms.model_matrix * triangle.vertices[0].pos.extend(1.0)).truncate();
+            let world_pos =
+                (uniforms.model_matrix * triangle.vertices[0].pos.extend(1.0)).truncate();
             let view_dir = (self.camera.eye - world_pos).normalize();
             let tri_normal = (uniforms.normal_matrix * triangle.normal.extend(0.0)).truncate();
             if view_dir.dot(tri_normal) <= 0.0 {
@@ -129,18 +124,16 @@ impl Renderer {
             //管线阶段 3: 裁剪
             let clipped_triangles = clipper.clip_triangle(&clip_space_triangle);
 
-
             for clipped_triangle_verts in clipped_triangles {
                 // 阶段 4: 屏幕映射
-                let raster_triangle = self.viewport_transform(&clipped_triangle_verts, triangle.material);
-                
+                let raster_triangle =
+                    self.viewport_transform(&clipped_triangle_verts, triangle.material);
+
                 // 阶段 5: 光栅化和像素着色
                 self.rasterize_triangle(&raster_triangle, texture, &*fragment_shader);
-
             }
         }
     }
-
 
     //视口变换
     fn viewport_transform(
@@ -154,9 +147,11 @@ impl Renderer {
             // 1. 透视除法
             ndc_pos /= clip_v.position.w;
 
-             // 转换到屏幕空间
-            let screen_x = (ndc_pos.x + 1.0) * 0.5 * self.viewport.w as f32 + self.viewport.x as f32;
-            let screen_y = self.viewport.h as f32 - (ndc_pos.y + 1.0) * 0.5 * self.viewport.h as f32
+            // 转换到屏幕空间
+            let screen_x =
+                (ndc_pos.x + 1.0) * 0.5 * self.viewport.w as f32 + self.viewport.x as f32;
+            let screen_y = self.viewport.h as f32
+                - (ndc_pos.y + 1.0) * 0.5 * self.viewport.h as f32
                 + self.viewport.y as f32;
 
             RasterPoint {
@@ -170,9 +165,11 @@ impl Renderer {
             }
         });
 
-        RasterTriangle { vertices: raster_vertices, material }
+        RasterTriangle {
+            vertices: raster_vertices,
+            material,
+        }
     }
-
 
     // 进行光栅化
     pub fn rasterize_triangle(
@@ -222,16 +219,14 @@ impl Renderer {
                     };
 
                     // 调用 shader 来获取颜色！
-                    let final_color_vec = shader.shade(fragment_data);
+                    let color = shader.shade(fragment_data);
 
-                    // 转换为 u32 颜色格式
-                    let color = ((final_color_vec.x * 255.0) as u32) << 16
-                        | ((final_color_vec.y * 255.0) as u32) << 8
-                        | ((final_color_vec.z * 255.0) as u32);
-                    let color = 0xFF000000 | color;
-
-                    self.framebuffer
-                        .put_pixel(x as usize, y as usize, color, interpolated_depth);
+                    self.framebuffer.put_pixel(
+                        x as usize,
+                        y as usize,
+                        color.extend(1.0),
+                        interpolated_depth,
+                    );
                 }
             }
         }
@@ -239,8 +234,8 @@ impl Renderer {
 
     pub fn draw_depth_outline_sobel(&mut self, threshold: f32, line_width: usize) {
         // 定义Prewitt算子的水平和垂直卷积核（3x3二维数组）
-        let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];  // x方向Sobel核
-        let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];  // y方向Sobel核
+        let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]; // x方向Sobel核
+        let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]]; // y方向Sobel核
 
         let width = self.framebuffer.width;
         let height = self.framebuffer.height;
@@ -311,8 +306,8 @@ impl Renderer {
 
     pub fn draw_color_outline_sobel(&mut self, threshold: f32, line_width: usize) {
         // Sobel
-    let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];  // x方向Sobel核
-    let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];  // y方向Sobel核
+        let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]; // x方向Sobel核
+        let sobel_y = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]]; // y方向Sobel核
 
         let width = self.framebuffer.width;
         let height = self.framebuffer.height;
@@ -326,9 +321,9 @@ impl Renderer {
                 let argb = color_buffer[idx]; // 假设为 ARGB8888 格式
 
                 // 提取 RGB 通道（8位转 0.0~1.0）
-                let r = ((argb >> 16) & 0xFF) as f32 / 255.0;
-                let g = ((argb >> 8) & 0xFF) as f32 / 255.0;
-                let b = (argb & 0xFF) as f32 / 255.0;
+                let r = argb.x;
+                let g = argb.y;
+                let b = argb.z;
 
                 color_matrix[y][x] = [r, g, b];
             }

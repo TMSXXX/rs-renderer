@@ -17,7 +17,7 @@ pub struct FragmentData<'a> {
 }
 
 // 定义 Shader 的通用行为
-pub trait FragmentShader {
+pub trait FragmentShader: Sync {
     // 输入插值后的片元数据，输出最终的颜色 (0.0 ~ 1.0 范围的 Vec3)
     fn shade(&self, data: FragmentData) -> Vec3<f32>;
 }
@@ -173,7 +173,7 @@ impl FragmentShader for InkShader {
                 * spec
         };
 
-        let split_level = 6.0;
+        let split_level = 4.0;
         specular = Vec3::new(
             (specular.x * split_level).floor() / split_level,
             (specular.y * split_level).floor() / split_level,

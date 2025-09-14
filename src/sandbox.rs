@@ -1,12 +1,12 @@
 use cgmath::{
-    Array, Deg, Matrix4 as Mat4, Rad, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero,
+    Deg, Matrix4 as Mat4, Vector2 as Vec2, Vector3 as Vec3, Zero,
 };
 use serde_json::from_reader;
-use std::{error::Error, f32::consts::PI, fs::File, path::Path, time::Instant};
+use std::{error::Error, fs::File, path::Path, time::Instant};
 
 use crate::{
     BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH,
-    camera::{self, Camera},
+    camera::{Camera},
     json_struct::{CameraConfig, JsonConfig, LightConfig, ModelConfig},
     model::load_obj,
     renderer::Renderer,
@@ -67,7 +67,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     
     
     println!("初始化完成");
-    let start_time = Instant::now(); //启动计时
+    let start_time = Instant::now(); //启动
 
     for model_config in models_config {
         let mut model = load_obj(
@@ -87,8 +87,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
         let [rx, ry, rz] = model_config.angle;
         let rotation_mat =
             Mat4::from_angle_x(Deg(rx)) * Mat4::from_angle_y(Deg(ry)) * Mat4::from_angle_z(Deg(rz));
-        let model_mat = rotation_mat
-            * Mat4::from_translation(model_config.position.into())
+        let model_mat = Mat4::from_translation(model_config.position.into()) * rotation_mat
             * Mat4::from_scale(model_config.scale);
         println!("开始渲染");
         renderer.render_colored_triangles(
@@ -109,12 +108,12 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     println!("开始进行描边处理");
     let outline_start_time = Instant::now(); // 描边时间
     if shader_method == "ink" {
-        renderer.draw_color_outline_sobel(0.6, 1);
-        renderer.draw_depth_outline_sobel(0.1, 2);
+        renderer.draw_color_outline_sobel(0.6, 1*ssaa_scale);
+        renderer.draw_depth_outline_sobel(0.1, 1*ssaa_scale);
     }
     if shader_method == "toon" {
-        renderer.draw_color_outline_sobel(0.6, 1);
-        renderer.draw_depth_outline_sobel(0.1, 2);
+        //renderer.draw_color_outline_sobel(0.6, 1*ssaa_scale);
+        renderer.draw_depth_outline_sobel(0.1, 1*ssaa_scale);
     }
     let outline_elapsed_time = outline_start_time.elapsed();
     println!("描边过程耗时: {:.2?}", outline_elapsed_time); 
@@ -130,6 +129,7 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
     println!("后处理耗时: {:.2?}", post_processing_elapsed_time); //后处理时间
     
     println!("全渲染流程已完成");  
+    println!("渲染总时长：{:.2?}", start_time.elapsed());
     Ok(())
 }
 

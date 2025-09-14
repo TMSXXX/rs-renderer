@@ -12,23 +12,23 @@
       "path": "./models/miku_race.obj",
       "material": "metal",
       "tex_path": "./models/miku_race.jpg",
-      "position": [4, -3, -20],
-      "angle": [-20, 30, 0],
+      "position": [6, -3, -14],
+      "angle": [0, 0, 0],
       "scale": 1
     },
     {
       "path": "./models/JiaRan.obj",
       "material": "metal",
       "tex_path": "",
-      "position": [8, 0, -22],
-      "angle": [-20, 30, 0],
+      "position": [8, 0, -18],
+      "angle": [0, 30, 0],
       "scale": 0.5
     }
   ],
 
   "camera": {
-    "position": [0, 10, 0],
-    "angle": [-90, -45, 2]
+    "position": [0, -2, 8],
+    "angle": [-90, 0, 0]
   },
 
   "light": {
