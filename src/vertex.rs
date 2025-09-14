@@ -1,4 +1,4 @@
-use cgmath::{InnerSpace, Matrix, Matrix4 as Mat4, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Zero};
+use cgmath::{InnerSpace, Matrix, Matrix4 as Mat4, SquareMatrix, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, Zero};
 use crate::renderer::Renderer;
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +45,15 @@ impl Material {
     }
 }
 
+
+#[derive(Debug, Copy, Clone)]
+pub struct ClipSpaceVertex { // 裁剪空间的三角形顶点
+    pub position: Vec4<f32>, 
+    pub world_pos: Vec3<f32>,
+    pub normal: Vec3<f32>,
+    pub uv: Vec2<f32>,
+    pub color: Vec3<f32>,
+}
 
 /// 带颜色信息的顶点（用于插值计算）
 #[derive(Debug, Clone, Copy)]
