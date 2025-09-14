@@ -1,15 +1,20 @@
 pub mod fragment_shader;
+pub mod vertex_shader;
+pub mod clip;
 
 use crate::BLACK;
 use crate::renderer::fragment_shader::InkShader;
 use crate::texture::Texture;
-use crate::vertex::{ColoredVertex, Material, RasterPoint, RasterTriangle, Triangle};
+use crate::vertex::{ClipSpaceVertex, ColoredVertex, Material, RasterPoint, RasterTriangle, Triangle};
 use crate::{camera, framebuffer, rasterizer};
 use camera::Camera;
 use cgmath::{ElementWise, InnerSpace, Matrix, Matrix3, Matrix4 as Mat4, SquareMatrix, Zero, dot};
 use cgmath::{Matrix3 as Mat3, Vector2 as Vec2, Vector3 as Vec3, Vector4 as Vec4, prelude::*};
 use fragment_shader::{FragmentData, FragmentShader, NormalDebugShader, PhongShader, ToonShader};
 use framebuffer::FrameBuffer;
+
+use self::vertex_shader::{DefaultVertexShader, VertexShader, VertexShaderUniforms};
+use self::clip::{Clipper, SimpleClipper};
 
 use crate::renderer_debug::RendererDebugUtils; // 已经被迁移出去的旧函数 
 
@@ -71,28 +76,37 @@ impl Renderer {
             light: Light::default(),
         }
     }
-
-    // 提取模型三角形并逐一送入渲染管线内
-
+    //一统江山后的完整渲染管线
     pub fn render_colored_triangles(
         &mut self,
         triangles: &mut Vec<Triangle>,
         model: &Mat4<f32>,
         texture: Option<&Texture>,
-        shader: &str,
+        shader_name: &str,
     ) {
         println!("三角形数量: {}", triangles.len());
+        //统一运算矩阵
         let normal_matrix = model.invert().unwrap().transpose();
+        let view_matrix = self.camera.get_view_mat();
+        let proj_matrix = self.camera.get_frustum().get_mat();
+        let mvp_matrix = proj_matrix * view_matrix * model;
 
-        let shader: Box<dyn FragmentShader> = match shader {
+        // 初始化本次渲染所使用的模块
+        let vertex_shader = DefaultVertexShader;
+        let clipper = SimpleClipper;
+        let fragment_shader: Box<dyn FragmentShader> = match shader_name {
             "toon" => Box::new(ToonShader { light: self.light }),
             "ink" => Box::new(InkShader { light: self.light }),
             "phong" => Box::new(PhongShader { light: self.light }),
+            "normal" => Box::new(NormalDebugShader),
             _ => Box::new(ToonShader { light: self.light }),
         };
-
-        //let shader = PhongShader { light: self.light };
-        //let shader = NormalDebugShader;
+        
+        let uniforms = VertexShaderUniforms {
+            model_matrix: model,
+            mvp_matrix: &mvp_matrix,
+            normal_matrix: &normal_matrix,
+        };
 
         let mut i = 0;
         let count = triangles.len() == 200;
@@ -101,64 +115,64 @@ impl Renderer {
                 println!("{i}");
                 i += 1;
             }
-            let world_pos = (*model * triangle.vertices[0].pos.extend(1.0)).truncate();
+            //管线阶段 1: 背面剔除
+            let world_pos = (uniforms.model_matrix * triangle.vertices[0].pos.extend(1.0)).truncate();
             let view_dir = (self.camera.eye - world_pos).normalize();
-            let tri_normal = (normal_matrix * triangle.normal.extend(0.0)).truncate();
-            // 提前剔除背面
+            let tri_normal = (uniforms.normal_matrix * triangle.normal.extend(0.0)).truncate();
             if view_dir.dot(tri_normal) <= 0.0 {
                 continue;
             }
-            let raster_triangle = self.transform_colored_vertices(triangle, model);
-            self.rasterize_triangle(&raster_triangle, texture, &*shader);
+
+            //管线阶段 2: 顶点着色
+            let clip_space_triangle = vertex_shader.shade_triangle(triangle, &uniforms);
+
+            //管线阶段 3: 裁剪
+            let clipped_triangles = clipper.clip_triangle(&clip_space_triangle);
+
+
+            for clipped_triangle_verts in clipped_triangles {
+                // 阶段 4: 屏幕映射
+                let raster_triangle = self.viewport_transform(&clipped_triangle_verts, triangle.material);
+                
+                // 阶段 5: 光栅化和像素着色
+                self.rasterize_triangle(&raster_triangle, texture, &*fragment_shader);
+
+            }
         }
     }
 
-    // 带颜色插值的变换
-    // 其实就是一个完整的顶点着色器 Vertex Shader
-    pub fn transform_colored_vertices(
+
+    //视口变换
+    fn viewport_transform(
         &self,
-        triangle: &Triangle,
-        model: &Mat4<f32>,
+        clip_triangle: &[ClipSpaceVertex; 3], // 接收一个数组的引用
+        material: Material,
     ) -> RasterTriangle {
-        let vertices = triangle.vertices;
-        let normal_matrix = model.invert().unwrap().transpose();
-        let view_matrix = self.camera.get_view_mat();
+        let raster_vertices = clip_triangle.map(|clip_v| {
+            let mut ndc_pos = clip_v.position;
 
-        let raster_vertices = vertices.map(|v| {
-            let world_pos = (*model * v.pos.extend(1.0)).truncate();
-            // 变换 3D 位置到裁剪空间
-            let mut pos = v.pos.extend(1.0);
-            pos = *self.camera.get_frustum().get_mat() * view_matrix * *model * pos;
+            // 1. 透视除法
+            ndc_pos /= clip_v.position.w;
 
-            pos /= pos.w;
-
-            let depth = (pos.z + 1.0) * 0.5;
-
-            // 变换法线（使用法线矩阵）
-            let mut normal = v.normal.extend(0.0);
-            normal = normal_matrix * normal;
-            let normal = Vec3::new(normal.x, normal.y, normal.z).normalize();
-
-            // 转换到屏幕空间
-            let screen_x = (pos.x + 1.0) * 0.5 * self.viewport.w as f32 + self.viewport.x as f32;
-            let screen_y = self.viewport.h as f32 - (pos.y + 1.0) * 0.5 * self.viewport.h as f32
+             // 转换到屏幕空间
+            let screen_x = (ndc_pos.x + 1.0) * 0.5 * self.viewport.w as f32 + self.viewport.x as f32;
+            let screen_y = self.viewport.h as f32 - (ndc_pos.y + 1.0) * 0.5 * self.viewport.h as f32
                 + self.viewport.y as f32;
 
             RasterPoint {
                 pos: Vec2::new(screen_x, screen_y),
-                color: v.color, // 颜色保持不变，后续插值使用
-                z: depth,       // 深度值（用于深度缓冲）
-                normal: normal, // 法线保持不变，后续光照计算使用
-                uv: v.uv,
-                world_pos,
+                z: (ndc_pos.z + 1.0) * 0.5,
+                // 继承其他属性
+                world_pos: clip_v.world_pos,
+                normal: clip_v.normal,
+                uv: clip_v.uv,
+                color: clip_v.color,
             }
         });
-        //print!(" 转换");
-        RasterTriangle {
-            vertices: raster_vertices,
-            material: triangle.material,
-        }
+
+        RasterTriangle { vertices: raster_vertices, material }
     }
+
 
     // 进行光栅化
     pub fn rasterize_triangle(
@@ -222,6 +236,7 @@ impl Renderer {
             }
         }
     }
+
     pub fn draw_depth_outline_sobel(&mut self, threshold: f32, line_width: usize) {
         // 定义Prewitt算子的水平和垂直卷积核（3x3二维数组）
         let sobel_x = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];  // x方向Sobel核
