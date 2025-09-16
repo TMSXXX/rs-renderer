@@ -6,10 +6,10 @@ use std::{error::Error, fs::File, path::Path, time::Instant};
 
 use crate::{
     BLUE, FAR_PLANE, NEAR_PLANE, WINDOW_HEIGHT, WINDOW_WIDTH,
-    camera::{Camera},
+    camera::Camera,
     json_struct::{CameraConfig, JsonConfig, LightConfig, ModelConfig},
     model::load_obj,
-    renderer::Renderer,
+    renderer::{Renderer, post_effect::glitch_effect},
     texture,
     vertex::{ColoredVertex, Material, Triangle},
 };
@@ -122,9 +122,11 @@ pub fn run_json() -> Result<(), Box<dyn Error>> {
 
     println!("开始后处理 (SSAA 及保存)...");
     let post_processing_start_time = Instant::now(); // 后处理时间
-
-    let _ = renderer.framebuffer.lock().ssaa(ssaa_scale).save_as_image("output1.png")?;
-      
+    let fb = renderer.framebuffer.lock();
+    let mut ssaa_fb = fb.ssaa(ssaa_scale); // 获取降采样后的帧缓冲
+    drop(fb); // 释放锁
+    glitch_effect(&mut ssaa_fb);
+    let _ = ssaa_fb.save_as_image("output1.png")?;
     let post_processing_elapsed_time = post_processing_start_time.elapsed(); //
     println!("后处理耗时: {:.2?}", post_processing_elapsed_time); //后处理时间
     

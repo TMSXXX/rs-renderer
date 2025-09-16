@@ -1,6 +1,7 @@
 pub mod clip;
 pub mod fragment_shader;
 pub mod vertex_shader;
+pub mod post_effect;
 
 use crate::BLACK;
 use crate::renderer::fragment_shader::InkShader;
@@ -131,10 +132,9 @@ impl Renderer {
                 let raster_triangle =
                     self.viewport_transform(&clipped_triangle_verts, triangle.material);
 
-                let mut fb = self.framebuffer.lock();
                 // 阶段 5: 光栅化和像素着色
                 Self::rasterize_triangle(
-                    &mut fb,
+                    &mut self.framebuffer.lock(),
                     &raster_triangle,
                     texture,
                     fragment_shader.as_ref(),
